@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
 import {
   Account,
@@ -52,9 +53,11 @@ interface AppState {
   setTargetAllocations: (allocations: TargetAllocation[]) => void;
 }
 
-const now = new Date().toISOString();
+const getNow = () => new Date().toISOString();
 
-export const useAppStore = create<AppState>((set, get) => ({
+export const useAppStore = create<AppState>()(
+  persist(
+    (set, get) => ({
   // Initial state
   accounts: [],
   positions: [],
@@ -67,8 +70,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newAccount: Account = {
       ...accountData,
       id: uuidv4(),
-      createdAt: now,
-      updatedAt: now,
+      createdAt: getNow(),
+      updatedAt: getNow(),
     };
     set((state) => ({
       accounts: [...state.accounts, newAccount],
@@ -84,7 +87,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const updatedAccount: Account = {
       ...account,
       ...updates,
-      updatedAt: now,
+      updatedAt: getNow(),
     };
     set((state) => ({
       accounts: state.accounts.map((a) => (a.id === id ? updatedAccount : a)),
@@ -110,8 +113,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newPosition: Position = {
       ...positionData,
       id: uuidv4(),
-      createdAt: now,
-      updatedAt: now,
+      createdAt: getNow(),
+      updatedAt: getNow(),
     };
     set((state) => ({
       positions: [...state.positions, newPosition],
@@ -127,7 +130,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const updatedPosition: Position = {
       ...position,
       ...updates,
-      updatedAt: now,
+      updatedAt: getNow(),
     };
     set((state) => ({
       positions: state.positions.map((p) => (p.id === id ? updatedPosition : p)),
@@ -151,7 +154,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newSnapshot: Snapshot = {
       ...snapshotData,
       id: uuidv4(),
-      createdAt: now,
+      createdAt: getNow(),
     };
     set((state) => ({
       snapshots: [...state.snapshots, newSnapshot].sort(
@@ -194,7 +197,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newTrade: Trade = {
       ...tradeData,
       id: uuidv4(),
-      createdAt: now,
+      createdAt: getNow(),
     };
     set((state) => ({
       trades: [...state.trades, newTrade].sort(
@@ -239,7 +242,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newTrade: Trade = {
       ...tradeData,
       id: uuidv4(),
-      createdAt: now,
+      createdAt: getNow(),
     };
 
     let updatedPosition: Position | undefined;
@@ -260,7 +263,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         // Deduct from account balance
         newAccounts = newAccounts.map((a) =>
           a.id === tradeData.accountId
-            ? { ...a, balance: a.balance - totalCost, updatedAt: now }
+            ? { ...a, balance: a.balance - totalCost, updatedAt: getNow() }
             : a
         );
         updatedBalance = currentAccount.balance - totalCost;
@@ -284,7 +287,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             quantity: newQuantity,
             avgCost: newAvgCost,
             currentPrice: newCurrentPrice,
-            updatedAt: now,
+            updatedAt: getNow(),
           };
           newPositions = newPositions.map((p) =>
             p.id === existingPosition.id ? updated : p
@@ -301,8 +304,8 @@ export const useAppStore = create<AppState>((set, get) => ({
             quantity: tradeData.quantity,
             avgCost: tradeData.price,
             currentPrice: tradeData.price,
-            createdAt: now,
-            updatedAt: now,
+            createdAt: getNow(),
+            updatedAt: getNow(),
           };
           newPositions.push(newPos);
           updatedPosition = newPos;
@@ -312,7 +315,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const proceeds = tradeData.total - tradeData.fees;
         newAccounts = newAccounts.map((a) =>
           a.id === tradeData.accountId
-            ? { ...a, balance: a.balance + proceeds, updatedAt: now }
+            ? { ...a, balance: a.balance + proceeds, updatedAt: getNow() }
             : a
         );
         updatedBalance = currentAccount.balance + proceeds;
@@ -336,7 +339,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             const updated = {
               ...existingPosition,
               quantity: newQuantity,
-              updatedAt: now,
+              updatedAt: getNow(),
             };
             newPositions = newPositions.map((p) =>
               p.id === existingPosition.id ? updated : p
@@ -394,8 +397,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newAllocation: TargetAllocation = {
       ...allocationData,
       id: uuidv4(),
-      createdAt: now,
-      updatedAt: now,
+      createdAt: getNow(),
+      updatedAt: getNow(),
     };
     set((state) => ({
       targetAllocations: [...state.targetAllocations, newAllocation],
@@ -411,7 +414,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const updatedAllocation: TargetAllocation = {
       ...allocation,
       ...updates,
-      updatedAt: now,
+      updatedAt: getNow(),
     };
     set((state) => ({
       targetAllocations: state.targetAllocations.map((a) =>
@@ -448,4 +451,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     }),
   setTargetAllocations: (targetAllocations) => set({ targetAllocations }),
-}));
+    }),
+    {
+      name: 'axia-storage',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        accounts: state.accounts,
+        positions: state.positions,
+        snapshots: state.snapshots,
+        trades: state.trades,
+        targetAllocations: state.targetAllocations,
+      }),
+    }
+  )
+);
