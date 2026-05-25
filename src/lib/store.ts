@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type {
+import {
   Account,
   Position,
   Snapshot,
@@ -8,7 +8,6 @@ import type {
   TargetAllocation,
   ActionResult,
   TradeExecutionResult,
-  AssetType,
 } from '@/types';
 
 interface AppState {
@@ -206,7 +205,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   executeTrade: (tradeData) => {
-    const { accounts, positions, addTrade, updatePosition, addPosition, updateAccount } = get();
+    const { accounts, positions } = get();
 
     // Get account
     const account = accounts.find((a) => a.id === tradeData.accountId);

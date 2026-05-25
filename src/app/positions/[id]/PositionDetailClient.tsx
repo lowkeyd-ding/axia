@@ -5,8 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAppStore } from '@/lib/store';
 import { getPrice } from '@/lib/priceApi';
-import type { Position, Account, AssetType } from '@/types';
-import { ASSET_TYPE_CONFIG } from '@/types';
+import { ASSET_TYPE_CONFIG, type Account, type AssetType } from '@/types';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
   brokerage: '券商',

@@ -1,10 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import Link from 'next/link';
 import {
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -29,8 +26,6 @@ interface FormData {
   date: string;
   note: string;
 }
-
-const ASSET_TYPES: AssetType[] = ['stock', 'fund', 'bank_wealth_management', 'bank_cash'];
 
 export default function SnapshotsPage() {
   const { snapshots, accounts, positions, addSnapshot, deleteSnapshot } = useAppStore();
@@ -90,7 +85,7 @@ export default function SnapshotsPage() {
     });
 
     const allocations = Array.from(allocationMap.entries())
-      .filter(([_, value]) => value > 0)
+      .filter(([, value]) => value > 0)
       .map(([type, value]) => ({
         type,
         value,

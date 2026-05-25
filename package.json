@@ -1,5 +1,5 @@
 {
-  "name": "jia-di",
+  "name": "axia",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,9 +9,13 @@
     "start": "next start",
     "lint": "eslint",
     "export": "next build",
-    "deploy": "npm run build && gh-pages -d out -t true"
+    "deploy": "npm run build && gh-pages -d out -t true",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui"
   },
-  "homepage": "https://jia-di.com",
+  "homepage": "https://axia.com",
   "dependencies": {
     "next": "16.2.6",
     "react": "19.2.4",
@@ -22,14 +26,21 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/ui": "^4.1.7",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "gh-pages": "^6.3.0",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.7"
   }
 }

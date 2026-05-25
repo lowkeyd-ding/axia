@@ -13,12 +13,10 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Legend,
   ReferenceLine,
-  type TooltipProps,
 } from 'recharts';
 import { useAppStore } from '@/lib/store';
-import type { Account, Position, TargetAllocation, AssetType, Snapshot } from '@/types';
+import type { Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
 
 const CURRENCY_RATES: Record<string, number> = {
@@ -181,7 +179,6 @@ export default function HomePage() {
       const benchInitialValue = benchData.startValue;
 
       // 生成与快照对应的基准数据
-      let benchIndex = 0;
       dataPoints.forEach((point) => {
         const pointDate = new Date(point.date);
         if (pointDate >= benchStartDate) {
@@ -202,7 +199,6 @@ export default function HomePage() {
   // 计算当前收益率
   const currentYield = useMemo(() => {
     if (yieldCurveData.length < 2) return { portfolio: 0, benchmark: 0 };
-    const first = yieldCurveData[0];
     const last = yieldCurveData[yieldCurveData.length - 1];
     return {
       portfolio: last.portfolio,
@@ -235,7 +231,7 @@ export default function HomePage() {
     const totalValue = Array.from(allocationMap.values()).reduce((sum, a) => sum + a.value, 0);
 
     return Array.from(allocationMap.entries())
-      .filter(([_, data]) => data.value > 0)
+      .filter(([, data]) => data.value > 0)
       .map(([type, data]) => {
         const percentage = totalValue > 0 ? (data.value / totalValue) * 100 : 0;
 

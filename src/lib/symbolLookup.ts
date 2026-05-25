@@ -297,9 +297,8 @@ export function searchSymbols(
   query: string,
   assetType?: 'stock' | 'fund'
 ): SymbolInfo[] {
-  if (!query || query.length < 1) return [];
-
   const normalizedQuery = query.toLowerCase().trim();
+  if (!normalizedQuery) return [];
 
   return ALL_SYMBOLS
     .filter((s) => {
@@ -332,15 +331,18 @@ export function detectAssetType(symbol: string): 'stock' | 'fund' | 'bank_wealth
 
   // 6-digit codes
   if (/^\d{6}$/.test(normalizedSymbol)) {
-    // Stock: 000xxx-009xxx, 600xxx-605xxx, 688xxx
-    if (/^(0[0-2]\d{3}|6[0-5]\d{3}|688\d{3})$/.test(normalizedSymbol)) {
-      return 'stock';
-    }
-    // Fund: 15xxxx, 16xxxx, 31xxxx, 32xxxx, 47xxxx, 48xxxx, 49xxxx, 51xxxx, 51xxxx
-    if (/^(15|16|31|32|47|48|49|51|51|59)\d{3}$/.test(normalizedSymbol)) {
-      return 'fund';
-    }
-    return 'stock';
+    // Stock codes: 000000-009999, 300000-309999, 600000-605999, 688000-688999
+    // Fund: everything else that starts with 0, 1, 3, 4, 5, or 59
+    // Stock: 000xxx-002xxx (excluding known funds 000009, 000538, 000640)
+    const inStockRange = /^00[0-2]\d{3}$/.test(normalizedSymbol);
+    const isKnownFund = /^(000009|000538|000640)$/.test(normalizedSymbol);
+    const isStock =
+      (inStockRange && !isKnownFund) ||
+      /^300\d{3}$/.test(normalizedSymbol) ||
+      /^6[0-5]\d{4}$/.test(normalizedSymbol) ||
+      /^688\d{3}$/.test(normalizedSymbol);
+    if (isStock) return 'stock';
+    return 'fund';
   }
 
   // HK stocks: 5 digits

@@ -43,7 +43,17 @@ const MOCK_PRICES: Record<string, { price: number; change: number; name: string 
  */
 export function isFundSymbol(symbol: string): boolean {
   if (/^\d{6}$/.test(symbol)) {
-    return /^(1[56]|4[789]|5[19]|59)\d{3}$/.test(symbol);
+    // Stock codes: 000001-009999, 300000-309999, 600000-605999, 688000-688999
+    // Fund: everything else that starts with 0, 1, 3, 4, 5, or 59
+    // Stock: 000xxx-002xxx (excluding known funds 000009, 000538, 000640)
+    const inStockRange = /^00[0-2]\d{3}$/.test(symbol);
+    const isKnownFund = /^(000009|000538|000640)$/.test(symbol);
+    const isStock =
+      (inStockRange && !isKnownFund) ||
+      /^300\d{3}$/.test(symbol) ||
+      /^6[0-5]\d{4}$/.test(symbol) ||
+      /^688\d{3}$/.test(symbol);
+    return !isStock;
   }
   return false;
 }
@@ -117,5 +127,6 @@ export async function refreshPricesByType(
   symbols: string[],
   _assetTypes: ('stock' | 'fund')[]
 ): Promise<RefreshPricesResult> {
+  void _assetTypes;
   return refreshPrices(symbols);
 }

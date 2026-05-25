@@ -1,10 +1,9 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import Link from 'next/link';
 import { useAppStore } from '@/lib/store';
 import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
-import type { Trade, Account, AssetType } from '@/types';
+import type { Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
@@ -41,7 +40,7 @@ const initialFormData: FormData = {
 };
 
 export default function TradesPage() {
-  const { trades, accounts, positions, executeTrade, deleteTrade } = useAppStore();
+  const { trades, accounts, positions, executeTrade } = useAppStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});

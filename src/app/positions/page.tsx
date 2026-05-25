@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useAppStore } from '@/lib/store';
-import { refreshPrices, getPrice, type PriceData } from '@/lib/priceApi';
+import { refreshPrices, getPrice } from '@/lib/priceApi';
 import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
 import type { Position, Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
@@ -146,7 +146,6 @@ export default function PositionsPage() {
     setRefreshingSymbols((prev) => new Set(prev).add(position.symbol));
 
     try {
-      const isFund = position.assetType === 'fund';
       const result = await getPrice(position.symbol);
 
       if (result) {
@@ -248,8 +247,6 @@ export default function PositionsPage() {
     setFormData({ ...initialFormData, accountId: accounts[0].id });
     setIsModalOpen(true);
   };
-
-  const getAssetTypeLabel = (type: AssetType) => ASSET_TYPE_CONFIG[type].label;
 
   const isBankProduct = (type: AssetType) =>
     type === 'bank_wealth_management' || type === 'bank_cash';
