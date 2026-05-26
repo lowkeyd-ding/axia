@@ -6,10 +6,21 @@ import {
   Position,
   Snapshot,
   Trade,
+  Transfer,
   TargetAllocation,
   ActionResult,
   TradeExecutionResult,
 } from '@/types';
+
+// Round to 4 decimal places to avoid floating point errors
+function roundQuantity(value: number): number {
+  return Math.round(value * 10000) / 10000;
+}
+
+// Round to 2 decimal places for currency
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
+}
 
 interface AppState {
   // State
@@ -17,6 +28,7 @@ interface AppState {
   positions: Position[];
   snapshots: Snapshot[];
   trades: Trade[];
+  transfers: Transfer[];
   targetAllocations: TargetAllocation[];
 
   // Account actions
@@ -40,6 +52,10 @@ interface AppState {
   deleteTrade: (id: string) => ActionResult<string>;
   executeTrade: (trade: Omit<Trade, 'id' | 'createdAt'>) => TradeExecutionResult;
 
+  // Transfer actions (资金转入转出)
+  addTransfer: (transfer: Omit<Transfer, 'id' | 'createdAt'>) => ActionResult<Transfer>;
+  deleteTransfer: (id: string) => ActionResult<string>;
+
   // Target allocation actions
   addTargetAllocation: (allocation: Omit<TargetAllocation, 'id' | 'createdAt' | 'updatedAt'>) => ActionResult<TargetAllocation>;
   updateTargetAllocation: (id: string, updates: Partial<Omit<TargetAllocation, 'id' | 'createdAt'>>) => ActionResult<TargetAllocation>;
@@ -50,6 +66,7 @@ interface AppState {
   setPositions: (positions: Position[]) => void;
   setSnapshots: (snapshots: Snapshot[]) => void;
   setTrades: (trades: Trade[]) => void;
+  setTransfers: (transfers: Transfer[]) => void;
   setTargetAllocations: (allocations: TargetAllocation[]) => void;
 
   // Data export/import
@@ -67,6 +84,7 @@ export const useAppStore = create<AppState>()(
   positions: [],
   snapshots: [],
   trades: [],
+  transfers: [],
   targetAllocations: [],
 
   // Account actions
@@ -281,10 +299,10 @@ export const useAppStore = create<AppState>()(
 
         if (existingPosition) {
           // Update position: recalculate average cost
-          const newQuantity = existingPosition.quantity + tradeData.quantity;
-          const newTotalCost = (existingPosition.avgCost * existingPosition.quantity) + tradeData.total;
-          const newAvgCost = newTotalCost / newQuantity;
-          const newCurrentPrice = tradeData.price; // Use trade price as current
+          const newQuantity = roundQuantity(existingPosition.quantity + tradeData.quantity);
+          const newTotalCost = roundCurrency((existingPosition.avgCost * existingPosition.quantity) + tradeData.total);
+          const newAvgCost = roundCurrency(newTotalCost / newQuantity);
+          const newCurrentPrice = roundCurrency(tradeData.price); // Use trade price as current
 
           const updated = {
             ...existingPosition,
@@ -305,9 +323,9 @@ export const useAppStore = create<AppState>()(
             assetType: tradeData.assetType,
             symbol: tradeData.symbol,
             name: tradeData.name,
-            quantity: tradeData.quantity,
-            avgCost: tradeData.price,
-            currentPrice: tradeData.price,
+            quantity: roundQuantity(tradeData.quantity),
+            avgCost: roundCurrency(tradeData.price),
+            currentPrice: roundCurrency(tradeData.price),
             createdAt: getNow(),
             updatedAt: getNow(),
           };
@@ -316,13 +334,13 @@ export const useAppStore = create<AppState>()(
         }
       } else {
         // Sell: Add to account balance
-        const proceeds = tradeData.total - tradeData.fees;
+        const proceeds = roundCurrency(tradeData.total - tradeData.fees);
         newAccounts = newAccounts.map((a) =>
           a.id === tradeData.accountId
-            ? { ...a, balance: a.balance + proceeds, updatedAt: getNow() }
+            ? { ...a, balance: roundCurrency(a.balance + proceeds), updatedAt: getNow() }
             : a
         );
-        updatedBalance = currentAccount.balance + proceeds;
+        updatedBalance = roundCurrency(currentAccount.balance + proceeds);
 
         // Find and update position
         const existingPosition = state.positions.find(
@@ -332,7 +350,7 @@ export const useAppStore = create<AppState>()(
         );
 
         if (existingPosition) {
-          const newQuantity = existingPosition.quantity - tradeData.quantity;
+          const newQuantity = roundQuantity(existingPosition.quantity - tradeData.quantity);
 
           if (newQuantity <= 0) {
             // Remove position if fully sold
@@ -396,6 +414,106 @@ export const useAppStore = create<AppState>()(
     return { success: true, data: id };
   },
 
+  // Transfer actions (资金转入转出)
+  addTransfer: (transferData) => {
+    const { fromAccountId, toAccountId, amount } = transferData;
+
+    // Validate system accounts exist
+    const fromAccount = fromAccountId !== 'external'
+      ? get().accounts.find((a) => a.id === fromAccountId)
+      : null;
+    const toAccount = toAccountId !== 'external'
+      ? get().accounts.find((a) => a.id === toAccountId)
+      : null;
+
+    // 内部转账：两个都是系统账户
+    if (fromAccountId !== 'external' && toAccountId !== 'external') {
+      if (!fromAccount) {
+        return { success: false, error: '转出账户不存在' };
+      }
+      if (!toAccount) {
+        return { success: false, error: '转入账户不存在' };
+      }
+      if (fromAccountId === toAccountId) {
+        return { success: false, error: '转出和转入账户不能相同' };
+      }
+      if (fromAccount.balance < amount) {
+        return { success: false, error: `余额不足，当前余额 ${fromAccount.balance.toFixed(2)} ${fromAccount.currency}` };
+      }
+    }
+
+    // 向外部转出：fromAccount 是系统账户
+    if (fromAccountId !== 'external' && toAccountId === 'external') {
+      if (!fromAccount) {
+        return { success: false, error: '转出账户不存在' };
+      }
+      if (fromAccount.balance < amount) {
+        return { success: false, error: `余额不足，当前余额 ${fromAccount.balance.toFixed(2)} ${fromAccount.currency}` };
+      }
+    }
+
+    // 从外部转入：toAccount 是系统账户
+    if (fromAccountId === 'external' && toAccountId !== 'external') {
+      if (!toAccount) {
+        return { success: false, error: '转入账户不存在' };
+      }
+    }
+
+    if (amount <= 0) {
+      return { success: false, error: '金额必须大于0' };
+    }
+
+    // Create transfer record
+    const newTransfer: Transfer = {
+      ...transferData,
+      id: uuidv4(),
+      createdAt: getNow(),
+    };
+
+    // Update balances - only update system accounts
+    set((state) => ({
+      transfers: [...state.transfers, newTransfer],
+      accounts: state.accounts.map((a) => {
+        // 向外部转出：减少转出账户余额
+        if (fromAccountId !== 'external' && a.id === fromAccountId) {
+          return { ...a, balance: roundCurrency(a.balance - amount), updatedAt: getNow() };
+        }
+        // 从外部转入：增加转入账户余额
+        if (toAccountId !== 'external' && a.id === toAccountId) {
+          return { ...a, balance: roundCurrency(a.balance + amount), updatedAt: getNow() };
+        }
+        return a;
+      }),
+    }));
+
+    return { success: true, data: newTransfer };
+  },
+
+  deleteTransfer: (id) => {
+    const transfer = get().transfers.find((t) => t.id === id);
+    if (!transfer) {
+      return { success: false, error: '转账记录不存在' };
+    }
+
+    // Reverse the transfer - only update system accounts
+    set((state) => ({
+      transfers: state.transfers.filter((t) => t.id !== id),
+      accounts: state.accounts.map((a) => {
+        // 向外部转出的反向：增加原转出账户余额
+        if (transfer.fromAccountId !== 'external' && a.id === transfer.fromAccountId) {
+          return { ...a, balance: roundCurrency(a.balance + transfer.amount), updatedAt: getNow() };
+        }
+        // 从外部转入的反向：减少原转入账户余额
+        if (transfer.toAccountId !== 'external' && a.id === transfer.toAccountId) {
+          return { ...a, balance: roundCurrency(a.balance - transfer.amount), updatedAt: getNow() };
+        }
+        return a;
+      }),
+    }));
+
+    return { success: true, data: id };
+  },
+
   // Target allocation actions
   addTargetAllocation: (allocationData) => {
     const newAllocation: TargetAllocation = {
@@ -454,6 +572,12 @@ export const useAppStore = create<AppState>()(
         (a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime()
       ),
     }),
+  setTransfers: (transfers) =>
+    set({
+      transfers: [...transfers].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      ),
+    }),
   setTargetAllocations: (targetAllocations) => set({ targetAllocations }),
 
   // Data export - returns all data as JSON string
@@ -467,6 +591,7 @@ export const useAppStore = create<AppState>()(
         positions: state.positions,
         snapshots: state.snapshots,
         trades: state.trades,
+        transfers: state.transfers,
         targetAllocations: state.targetAllocations,
       },
     };

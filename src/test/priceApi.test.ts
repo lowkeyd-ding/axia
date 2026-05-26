@@ -83,7 +83,7 @@ describe('types - Interface Structures', () => {
     const account: Account = {
       id: 'test-id',
       name: '测试账户',
-      type: 'brokerage',
+      type: 'securities',
       institution: '招商证券',
       holder: '张三',
       balance: 100000,
@@ -91,7 +91,7 @@ describe('types - Interface Structures', () => {
       createdAt: '2024-01-01T00:00:00.000Z',
       updatedAt: '2024-01-01T00:00:00.000Z',
     };
-    expect(account.type).toBe('brokerage');
+    expect(account.type).toBe('securities');
     expect(account.currency).toBe('CNY');
   });
 
@@ -174,7 +174,7 @@ describe('types - Interface Structures', () => {
       data: {
         id: 'test',
         name: 'Test',
-        type: 'brokerage',
+        type: 'securities',
         currency: 'CNY',
         balance: 0,
         createdAt: '',

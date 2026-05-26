@@ -65,6 +65,31 @@ function parseAShareResponse(symbol: string, text: string): PriceData | null {
   }
 }
 
+function parseUSStockResponse(symbol: string, text: string): PriceData | null {
+  try {
+    const match = text.match(/="([^"]+)"/);
+    if (!match) return null;
+    const parts = match[1].split(',');
+    if (parts.length < 10) return null;
+
+    const name = parts[0].trim().replace(/^["']|["']$/g, '');
+    const price = parseFloat(parts[1]) || 0;
+    const change = parseFloat(parts[2]) || 0;
+    const changePercent = parseFloat(parts[3]) || 0;
+    const prevClose = parts[4] ? parseFloat(parts[4]) : 0;
+    const open = parseFloat(parts[5]) || 0;
+    const high = parseFloat(parts[6]) || 0;
+    const low = parseFloat(parts[7]) || 0;
+    const volume = parseFloat(parts[9]) || 0;
+
+    if (price === 0) return null;
+
+    return { symbol, name, price, change, changePercent, prevClose, open, high, low, volume, timestamp: new Date().toISOString(), source: 'realtime', exchange: 'US' };
+  } catch {
+    return null;
+  }
+}
+
 function parseHKResponse(symbol: string, text: string): PriceData | null {
   try {
     const match = text.match(/="([^"]+)"/);
@@ -92,36 +117,61 @@ function parseHKResponse(symbol: string, text: string): PriceData | null {
 }
 
 async function parseUSResponse(symbol: string): Promise<PriceData | null> {
+  // Try Yahoo Finance first
   const yahooSymbol = symbol.toUpperCase();
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1d`;
+  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=1d`;
 
   try {
-    const response = await fetch(url);
+    const yahooResponse = await fetch(yahooUrl, { signal: AbortSignal.timeout(5000) });
+    if (yahooResponse.ok) {
+      const yahooData = await yahooResponse.json();
+      const result = yahooData?.chart?.result?.[0];
+      if (result) {
+        const meta = result.meta;
+        const quote = result.indicators?.quote?.[0];
+        if (meta && quote) {
+          const price = meta.regularMarketPrice || quote.close?.[0];
+          const prevClose = meta.previousClose || quote.close?.[1];
+          if (price) {
+            const change = price - prevClose;
+            const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+            return {
+              symbol, name: meta.shortName || meta.symbol, price, change, changePercent, prevClose,
+              open: meta.regularMarketOpen || quote.open?.[0],
+              high: meta.regularMarketDayHigh || quote.high?.[0],
+              low: meta.regularMarketDayLow || quote.low?.[0],
+              volume: meta.regularMarketVolume,
+              timestamp: new Date().toISOString(),
+              source: 'realtime', exchange: 'US'
+            };
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // Fallback to Sina Finance
+  return fetchUSFromSina(symbol);
+}
+
+async function fetchUSFromSina(symbol: string): Promise<PriceData | null> {
+  const upper = symbol.toUpperCase();
+  const sinaSymbol = `gb_${upper.toLowerCase()}`;
+  const url = `https://hq.sinajs.cn/list=${sinaSymbol}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'Referer': 'https://finance.sina.com.cn', 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(5000)
+    });
+
     if (!response.ok) return null;
-    const data = await response.json();
-    const result = data?.chart?.result?.[0];
-    if (!result) return null;
 
-    const meta = result.meta;
-    const quote = result.indicators?.quote?.[0];
-    if (!meta || !quote) return null;
+    const buffer = await response.arrayBuffer();
+    const decoder = new TextDecoder('gbk');
+    const text = decoder.decode(buffer);
 
-    const price = meta.regularMarketPrice || quote.close?.[0];
-    const prevClose = meta.previousClose || quote.close?.[1];
-    if (!price) return null;
-
-    const change = price - prevClose;
-    const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
-
-    return {
-      symbol, name: meta.shortName || meta.symbol, price, change, changePercent, prevClose,
-      open: meta.regularMarketOpen || quote.open?.[0],
-      high: meta.regularMarketDayHigh || quote.high?.[0],
-      low: meta.regularMarketDayLow || quote.low?.[0],
-      volume: meta.regularMarketVolume,
-      timestamp: new Date().toISOString(),
-      source: 'realtime', exchange: 'US'
-    };
+    return parseUSStockResponse(symbol, text);
   } catch {
     return null;
   }
@@ -152,6 +202,12 @@ async function fetchFromSina(symbol: string): Promise<PriceData | null> {
     }
   } catch {}
 
+  // Try fund API for fund symbols (5xxxxxx codes)
+  if (/^5\d{5}$/.test(symbol.toUpperCase())) {
+    const fundResult = await fetchFundFromEastMoney(symbol);
+    if (fundResult) return fundResult;
+  }
+
   if (exchange === 'SZ' || exchange === 'SH') return fetchFromEastMoney(symbol, exchange);
   if (exchange === 'HK') return fetchHKFromEastMoney(symbol);
   return null;
@@ -181,6 +237,53 @@ async function fetchFromEastMoney(symbol: string, exchange: string): Promise<Pri
       symbol, name: info.f58 || symbol, price, change, changePercent, prevClose,
       open: info.f46 / 100, high: info.f44 / 100, low: info.f45 / 100, volume: info.f47 / 100,
       timestamp: new Date().toISOString(), source: 'realtime'
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Fetch REIT/fund price using East Money stock API (REITs trade like stocks, need /100)
+async function fetchFundFromEastMoney(symbol: string): Promise<PriceData | null> {
+  // REITs on Shanghai use secid prefix 1.xxxxxx, same as stocks
+  const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=1.${symbol}&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60`;
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'Referer': 'https://quote.eastmoney.com', 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(5000)
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    const info = data?.data;
+    if (!info || !info.f43) return null;
+
+    // REITs trade like stocks - prices returned in "分" format, need /100 to get yuan
+    const price = info.f43 / 100;
+    const prevClose = info.f60 ? info.f60 / 100 : price;
+    const high = info.f44 ? info.f44 / 100 : price;
+    const low = info.f45 ? info.f45 / 100 : price;
+    const open = info.f46 ? info.f46 / 100 : price;
+
+    if (!price || price === 0) return null;
+
+    const change = price - prevClose;
+    const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+
+    return {
+      symbol,
+      name: info.f58 || symbol,
+      price,
+      change,
+      changePercent,
+      prevClose,
+      open,
+      high,
+      low,
+      volume: info.f47 || 0,
+      timestamp: new Date().toISOString(),
+      source: 'fund'
     };
   } catch {
     return null;
@@ -218,6 +321,10 @@ async function fetchHKFromEastMoney(symbol: string): Promise<PriceData | null> {
 
 function getExchange(symbol: string): string {
   const upper = symbol.toUpperCase();
+  // .OF format funds (open-ended fund)
+  if (/\.OF$/i.test(upper)) return 'FUND_OF';
+  // Fund symbols (5xxxxxx) - use FUND exchange for REITs
+  if (/^5\d{5}$/.test(upper)) return 'FUND';
   if (/^[023]\d{5}$/.test(upper)) return 'SZ';
   if (/^[569]\d{5}$/.test(upper)) return 'SH';
   if (/^\d{5}$/.test(upper)) return 'HK';
@@ -225,9 +332,82 @@ function getExchange(symbol: string): string {
   return 'UNKNOWN';
 }
 
+// Check if symbol is a fund
+function isFundSymbol(symbol: string): boolean {
+  const upper = symbol.toUpperCase();
+  // Fund symbols are 5xxxxxx on SH, also check our lookup table
+  if (/^5\d{5}$/.test(upper)) return true;
+  // .OF format funds (open-ended fund)
+  if (/\.OF$/i.test(upper)) return true;
+  return false;
+}
+
+// Fetch .OF format open-ended fund NAV from East Money
+async function fetchOFFundNAV(symbol: string): Promise<PriceData | null> {
+  // Remove .OF suffix if present
+  const fundCode = symbol.replace(/\.OF$/i, '');
+
+  // East Money fund NAV API
+  const url = `https://fundgz.1234567.com.cn/js/${fundCode}.js?rt=${Date.now()}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'Referer': 'https://fund.eastmoney.com', 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(5000)
+    });
+
+    if (!response.ok) return null;
+
+    const text = await response.text();
+
+    // Parse JSONP response: jsonpgz({"gsz": ...})
+    const match = text.match(/jsonpgz\((.+)\)/);
+    if (!match) return null;
+
+    const data = JSON.parse(match[1]);
+    if (!data || !data.gsz) return null;
+
+    const price = parseFloat(data.gsz);
+    const prevClose = parseFloat(data.gzct || data.dwjz);
+    const change = price - prevClose;
+    const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+
+    if (isNaN(price) || price === 0) return null;
+
+    return {
+      symbol: symbol.toUpperCase(),
+      name: data.name || fundCode,
+      price,
+      change,
+      changePercent,
+      prevClose,
+      open: price,
+      high: price,
+      low: price,
+      volume: 0,
+      timestamp: data.gztime || new Date().toISOString(),
+      source: 'fund'
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchSymbol(symbol: string): Promise<PriceData | null> {
   const exchange = getExchange(symbol);
-  if (exchange === 'SZ' || exchange === 'SH' || exchange === 'HK') return fetchFromSina(symbol);
+
+  // Handle .OF format funds specially
+  if (exchange === 'FUND_OF') {
+    return fetchOFFundNAV(symbol);
+  }
+
+  // Handle fund symbols (5xxxxxx REITs)
+  if (exchange === 'FUND') {
+    return fetchFundFromEastMoney(symbol);
+  }
+
+  if (exchange === 'SZ' || exchange === 'SH') return fetchFromSina(symbol);
+  if (exchange === 'HK') return fetchFromSina(symbol);
   if (exchange === 'US') return parseUSResponse(symbol);
   return null;
 }

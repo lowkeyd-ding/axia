@@ -7,10 +7,10 @@ import type { Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
-  brokerage: '券商',
-  retirement: '养老',
-  savings: '储蓄',
-  cash: '现金',
+  bank: '银行',
+  securities: '证券',
+  fund: '基金',
+  other: '其他',
 };
 
 const ASSET_TYPES: AssetType[] = ['stock', 'fund', 'bank_wealth_management', 'bank_cash'];

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import { refreshPrices, getPrice } from '@/lib/priceApi';
 import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
@@ -9,10 +10,10 @@ import type { Position, Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
-  brokerage: '券商',
-  retirement: '养老',
-  savings: '储蓄',
-  cash: '现金',
+  bank: '银行',
+  securities: '证券',
+  fund: '基金',
+  other: '其他',
 };
 
 const ASSET_TYPES: AssetType[] = ['stock', 'fund', 'bank_wealth_management', 'bank_cash'];
@@ -22,6 +23,7 @@ interface FormData {
   assetType: AssetType;
   symbol: string;
   name: string;
+  currency: string;
   quantity: string;
   avgCost: string;
   currentPrice: string;
@@ -34,16 +36,20 @@ const initialFormData: FormData = {
   assetType: 'stock',
   symbol: '',
   name: '',
+  currency: '',
   quantity: '',
   avgCost: '',
   currentPrice: '',
 };
 
-export default function PositionsPage() {
+function PositionsPageContent() {
   const { positions, accounts, addPosition, updatePosition } = useAppStore();
+  const searchParams = useSearchParams();
+  const filterAccountId = searchParams.get('account');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingPosition, setEditingPosition] = useState<Position | null>(null);
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
   const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolInfo[]>([]);
@@ -52,6 +58,14 @@ export default function PositionsPage() {
   const [priceUpdateToast, setPriceUpdateToast] = useState<{ success: number; failed: number } | null>(null);
   const suggestionRef = useRef<HTMLDivElement>(null);
   const symbolInputRef = useRef<HTMLInputElement>(null);
+
+  // Filter positions by account if filterAccountId is set
+  const filteredPositions = useMemo(() => {
+    if (!filterAccountId) return positions;
+    return positions.filter(p => p.accountId === filterAccountId);
+  }, [positions, filterAccountId]);
+
+  const filterAccount = filterAccountId ? accounts.find(a => a.id === filterAccountId) : null;
 
   // Close suggestions when clicking outside
   useEffect(() => {
@@ -114,7 +128,11 @@ export default function PositionsPage() {
     let failedCount = 0;
 
     try {
-      const symbols = [...new Set(positions.map((p) => p.symbol))];
+      // Filter out bank products (bank_wealth_management and bank_cash) - they don't have tradeable symbols
+      const tradeablePositions = positions.filter(
+        (p) => p.assetType !== 'bank_wealth_management' && p.assetType !== 'bank_cash' && p.symbol
+      );
+      const symbols = [...new Set(tradeablePositions.map((p) => p.symbol))];
       const result = await refreshPrices(symbols);
 
       if (result.success && result.prices) {
@@ -126,11 +144,15 @@ export default function PositionsPage() {
           }
         });
         setLastRefresh(new Date());
+        // Count positions that couldn't be updated
+        failedCount = symbols.length - successCount;
       } else {
         failedCount = symbols.length;
       }
     } catch {
-      failedCount = positions.length;
+      failedCount = positions.filter(
+        (p) => p.assetType !== 'bank_wealth_management' && p.assetType !== 'bank_cash'
+      ).length;
     } finally {
       setIsRefreshing(false);
       if (successCount > 0 || failedCount > 0) {
@@ -213,21 +235,74 @@ export default function PositionsPage() {
     return Object.keys(newErrors).length === 0;
   };
 
+  const openAddModal = () => {
+    if (accounts.length === 0) {
+      alert('请先添加账户');
+      return;
+    }
+    setEditingPosition(null);
+    setFormData({ ...initialFormData, accountId: accounts[0].id });
+    setErrors({});
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (position: Position) => {
+    setEditingPosition(position);
+    // 根据股票代码自动判断币种，或使用持仓已保存的币种
+    const autoCurrency = position.currency || (() => {
+      const upper = position.symbol.toUpperCase();
+      if (/^\d{5}$/.test(upper)) return 'HKD';
+      if (/^[0236]\d{5}$/.test(upper)) return 'CNY';
+      if (/^5\d{5}$/.test(upper)) return 'CNY';
+      if (/^[A-Z]{1,5}$/.test(upper)) return 'USD';
+      return '';
+    })();
+    setFormData({
+      accountId: position.accountId,
+      assetType: position.assetType,
+      symbol: position.symbol,
+      name: position.name,
+      currency: autoCurrency,
+      quantity: position.quantity.toString(),
+      avgCost: position.avgCost.toString(),
+      currentPrice: position.currentPrice.toString(),
+    });
+    setErrors({});
+    setIsModalOpen(true);
+  };
+
   const handleSubmit = () => {
     if (!validateForm()) return;
 
-    addPosition({
-      accountId: formData.accountId,
-      assetType: formData.assetType,
-      symbol: formData.symbol.trim().toUpperCase(),
-      name: formData.name.trim(),
-      quantity: parseFloat(formData.quantity),
-      avgCost: parseFloat(formData.avgCost),
-      currentPrice: parseFloat(formData.currentPrice),
-    });
+    if (editingPosition) {
+      // Update existing position
+      updatePosition(editingPosition.id, {
+        accountId: formData.accountId,
+        assetType: formData.assetType,
+        symbol: formData.symbol.trim().toUpperCase(),
+        name: formData.name.trim(),
+        currency: formData.currency || undefined,
+        quantity: parseFloat(formData.quantity),
+        avgCost: parseFloat(formData.avgCost),
+        currentPrice: parseFloat(formData.currentPrice),
+      });
+    } else {
+      // Add new position
+      addPosition({
+        accountId: formData.accountId,
+        assetType: formData.assetType,
+        symbol: formData.symbol.trim().toUpperCase(),
+        name: formData.name.trim(),
+        currency: formData.currency || undefined,
+        quantity: parseFloat(formData.quantity),
+        avgCost: parseFloat(formData.avgCost),
+        currentPrice: parseFloat(formData.currentPrice),
+      });
+    }
 
     setFormData(initialFormData);
     setErrors({});
+    setEditingPosition(null);
     setIsModalOpen(false);
   };
 
@@ -236,16 +311,8 @@ export default function PositionsPage() {
     setErrors({});
     setSymbolSuggestions([]);
     setShowSuggestions(false);
+    setEditingPosition(null);
     setIsModalOpen(false);
-  };
-
-  const openAddModal = () => {
-    if (accounts.length === 0) {
-      alert('请先添加账户');
-      return;
-    }
-    setFormData({ ...initialFormData, accountId: accounts[0].id });
-    setIsModalOpen(true);
   };
 
   const isBankProduct = (type: AssetType) =>
@@ -320,7 +387,25 @@ export default function PositionsPage() {
       </header>
 
       <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-6">
-        {positions.length === 0 ? (
+        {filterAccount && (
+          <div className="mb-4">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              返回首页
+            </Link>
+            <span className="mx-2 text-zinc-300">|</span>
+            <span className="text-sm text-zinc-700 font-medium">
+              {filterAccount.name} 的持仓
+            </span>
+          </div>
+        )}
+
+        {filteredPositions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-16 h-16 mb-4 rounded-full bg-zinc-100 flex items-center justify-center">
               <svg
@@ -337,20 +422,32 @@ export default function PositionsPage() {
                 />
               </svg>
             </div>
-            <h2 className="text-lg font-medium text-zinc-700 mb-1">暂无持仓</h2>
-            <p className="text-sm text-zinc-500">点击右下角按钮添加您的第一笔持仓</p>
+            <h2 className="text-lg font-medium text-zinc-700 mb-1">
+              {filterAccount ? `暂无${filterAccount.name}的持仓` : '暂无持仓'}
+            </h2>
+            <p className="text-sm text-zinc-500">
+              {filterAccount ? '点击右下角按钮添加该账户的持仓' : '点击右下角按钮添加您的第一笔持仓'}
+            </p>
+            {filterAccount && (
+              <Link
+                href="/positions"
+                className="mt-4 text-sm text-blue-500 hover:text-blue-600"
+              >
+                查看全部持仓 →
+              </Link>
+            )}
           </div>
         ) : (
           <div className="space-y-2">
-            {positions.map((position) => {
+            {filteredPositions.map((position) => {
               const { pnlAmount, pnlPercent } = calculatePnL(position);
               const currency = getAccountCurrency(position.accountId);
               const assetConfig = ASSET_TYPE_CONFIG[position.assetType];
               const pnlColor =
                 pnlAmount > 0
-                  ? 'text-blue-600'
+                  ? 'text-red-500'
                   : pnlAmount < 0
-                    ? 'text-red-500'
+                    ? 'text-green-600'
                     : 'text-zinc-400';
               const isRefreshing = refreshingSymbols.has(position.symbol);
 
@@ -424,6 +521,31 @@ export default function PositionsPage() {
                           />
                         </svg>
                       </button>
+
+                      {/* Edit button */}
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          openEditModal(position);
+                        }}
+                        className="p-2 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="修改持仓"
+                      >
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                          />
+                        </svg>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -450,7 +572,9 @@ export default function PositionsPage() {
         >
           <div className="w-full max-w-lg bg-white border border-zinc-200 rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-white border-b border-zinc-200">
-              <h2 className="text-lg font-semibold text-zinc-900">添加持仓</h2>
+              <h2 className="text-lg font-semibold text-zinc-900">
+                {editingPosition ? '修改持仓' : '添加持仓'}
+              </h2>
               <button
                 onClick={handleClose}
                 className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
@@ -517,6 +641,29 @@ export default function PositionsPage() {
                     );
                   })}
                 </div>
+              </div>
+
+              {/* Currency Selection */}
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 mb-1.5">
+                  币种 <span className="text-xs text-zinc-400">(留空则自动识别)</span>
+                </label>
+                <select
+                  value={formData.currency}
+                  onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-white border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors cursor-pointer"
+                >
+                  <option value="">自动识别</option>
+                  <option value="CNY">人民币 (CNY)</option>
+                  <option value="HKD">港币 (HKD)</option>
+                  <option value="USD">美元 (USD)</option>
+                  <option value="EUR">欧元 (EUR)</option>
+                  <option value="JPY">日元 (JPY)</option>
+                  <option value="GBP">英镑 (GBP)</option>
+                </select>
+                <p className="mt-1 text-xs text-zinc-500">
+                  港股通购买港股时，建议选择 HKD 以便正确换算
+                </p>
               </div>
 
               {/* Symbol Search with Autocomplete */}
@@ -684,12 +831,26 @@ export default function PositionsPage() {
                 onClick={handleSubmit}
                 className="flex-1 px-4 py-2.5 bg-blue-500 hover:bg-blue-400 text-white rounded-lg font-medium transition-colors"
               >
-                添加
+                {editingPosition ? '保存修改' : '添加'}
               </button>
             </div>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+export default function PositionsPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex flex-col min-h-screen bg-zinc-50">
+        <div className="flex items-center justify-center py-20">
+          <div className="text-zinc-500">加载中...</div>
+        </div>
+      </div>
+    }>
+      <PositionsPageContent />
+    </Suspense>
   );
 }

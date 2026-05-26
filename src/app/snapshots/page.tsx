@@ -48,10 +48,11 @@ export default function SnapshotsPage() {
       totalCash += account.balance * rate;
 
       const accountPositions = positions.filter((p) => p.accountId === account.id);
-      const investValue = accountPositions.reduce(
-        (sum, p) => sum + p.currentPrice * p.quantity * rate,
-        0
-      );
+      const investValue = accountPositions.reduce((sum, p) => {
+        const positionCurrency = p.currency || account.currency || 'CNY';
+        const posRate = CURRENCY_RATES[positionCurrency] ?? 1;
+        return sum + p.currentPrice * p.quantity * posRate;
+      }, 0);
       totalInvestments += investValue;
       totalValue += (account.balance + investValue) * rate;
     });
@@ -79,7 +80,8 @@ export default function SnapshotsPage() {
     positions.forEach((position) => {
       const account = accounts.find((a) => a.id === position.accountId);
       if (!account) return;
-      const rate = CURRENCY_RATES[account.currency] ?? 1;
+      const positionCurrency = position.currency || account.currency || 'CNY';
+      const rate = CURRENCY_RATES[positionCurrency] ?? 1;
       const value = position.currentPrice * position.quantity * rate;
       allocationMap.set(position.assetType, (allocationMap.get(position.assetType) || 0) + value);
     });
@@ -96,10 +98,11 @@ export default function SnapshotsPage() {
     const accountValues = accounts.map((account) => {
       const rate = CURRENCY_RATES[account.currency] ?? 1;
       const accountPositions = positions.filter((p) => p.accountId === account.id);
-      const investValue = accountPositions.reduce(
-        (sum, p) => sum + p.currentPrice * p.quantity * rate,
-        0
-      );
+      const investValue = accountPositions.reduce((sum, p) => {
+        const positionCurrency = p.currency || account.currency || 'CNY';
+        const posRate = CURRENCY_RATES[positionCurrency] ?? 1;
+        return sum + p.currentPrice * p.quantity * posRate;
+      }, 0);
       return {
         accountId: account.id,
         accountName: account.name,
@@ -113,7 +116,8 @@ export default function SnapshotsPage() {
     // Position values
     const positionValues: PositionValue[] = positions.map((position) => {
       const account = accounts.find((a) => a.id === position.accountId);
-      const rate = CURRENCY_RATES[account?.currency ?? 'CNY'] ?? 1;
+      const positionCurrency = position.currency || account?.currency || 'CNY';
+      const rate = CURRENCY_RATES[positionCurrency] ?? 1;
       const value = position.currentPrice * position.quantity * rate;
       const costBasis = position.avgCost * position.quantity * rate;
       const pnl = value - costBasis;
@@ -263,7 +267,7 @@ export default function SnapshotsPage() {
             <div>
               <p className="text-sm text-zinc-500 mb-1">累计收益</p>
               <p className={`text-2xl font-bold ${
-                currentStats.totalChange >= 0 ? 'text-blue-600' : 'text-red-500'
+                currentStats.totalChange >= 0 ? 'text-red-500' : 'text-green-600'
               }`}>
                 {currentStats.totalChange >= 0 ? '+' : '-'}{formatCurrency(currentStats.totalChange)}
               </p>
@@ -369,7 +373,7 @@ export default function SnapshotsPage() {
 
             {snapshots.map((snapshot) => {
               const comparison = getComparison(snapshot);
-              const dailyColor = snapshot.dailyChange >= 0 ? 'text-blue-600' : 'text-red-500';
+              const dailyColor = snapshot.dailyChange >= 0 ? 'text-red-500' : 'text-green-600';
 
               return (
                 <div
@@ -425,20 +429,20 @@ export default function SnapshotsPage() {
                           <div className="grid grid-cols-3 gap-4 text-sm">
                             <div>
                               <span className="text-zinc-500">资产变化</span>
-                              <p className={`font-medium ${comparison.valueChange >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                              <p className={`font-medium ${comparison.valueChange >= 0 ? 'text-red-500' : 'text-green-600'}`}>
                                 {comparison.valueChange >= 0 ? '+' : ''}{formatCurrency(comparison.valueChange)}
                                 <span className="text-xs ml-1">({formatPercent(comparison.valueChangePercent)})</span>
                               </p>
                             </div>
                             <div>
                               <span className="text-zinc-500">持仓变化</span>
-                              <p className={`font-medium ${comparison.investChange >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                              <p className={`font-medium ${comparison.investChange >= 0 ? 'text-red-500' : 'text-green-600'}`}>
                                 {comparison.investChange >= 0 ? '+' : ''}{formatCurrency(comparison.investChange)}
                               </p>
                             </div>
                             <div>
                               <span className="text-zinc-500">现金变化</span>
-                              <p className={`font-medium ${comparison.cashChange >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                              <p className={`font-medium ${comparison.cashChange >= 0 ? 'text-red-500' : 'text-green-600'}`}>
                                 {comparison.cashChange >= 0 ? '+' : ''}{formatCurrency(comparison.cashChange)}
                               </p>
                             </div>
@@ -499,7 +503,7 @@ export default function SnapshotsPage() {
                                   </div>
                                   <div className="flex items-center gap-4 text-zinc-500">
                                     <span>{pv.quantity}</span>
-                                    <span className={pv.pnl >= 0 ? 'text-blue-600' : 'text-red-500'}>
+                                    <span className={pv.pnl >= 0 ? 'text-red-500' : 'text-green-600'}>
                                       {pv.pnl >= 0 ? '+' : ''}{formatCurrency(pv.pnl)}
                                     </span>
                                   </div>

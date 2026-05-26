@@ -2,7 +2,7 @@
 export interface Account {
   id: string;
   name: string;
-  type: 'brokerage' | 'retirement' | 'savings' | 'cash';
+  type: 'bank' | 'securities' | 'fund' | 'other';
   institution?: string;
   holder?: string;
   balance: number;
@@ -24,6 +24,7 @@ export interface Position {
   quantity: number;
   avgCost: number;
   currentPrice: number;
+  currency?: string; // 持仓币种，如果不填则使用账户币种
   createdAt: string;
   updatedAt: string;
 }
@@ -96,6 +97,17 @@ export interface Trade {
   total: number;
   fees: number;
   executedAt: string;
+  createdAt: string;
+}
+
+// Transfer types (资金转入转出)
+export interface Transfer {
+  id: string;
+  fromAccountId: string;
+  toAccountId: string;
+  amount: number;
+  currency: string;
+  note?: string;
   createdAt: string;
 }
 

@@ -15,7 +15,7 @@ describe('useAppStore - Accounts', () => {
     const { addAccount } = useAppStore.getState();
     const result = addAccount({
       name: 'Test Account',
-      type: 'brokerage',
+      type: 'securities',
       institution: 'Test Broker',
       currency: 'CNY',
       holder: 'Test User',
@@ -25,7 +25,7 @@ describe('useAppStore - Accounts', () => {
     expect(result.success).toBe(true);
     expect(result.data).toBeDefined();
     expect(result.data?.name).toBe('Test Account');
-    expect(result.data?.type).toBe('brokerage');
+    expect(result.data?.type).toBe('securities');
     expect(result.data?.balance).toBe(10000);
     expect(result.data?.id).toBeDefined();
     expect(result.data?.createdAt).toBeDefined();
@@ -36,7 +36,7 @@ describe('useAppStore - Accounts', () => {
     const { addAccount, updateAccount } = useAppStore.getState();
     const addResult = addAccount({
       name: 'Original Name',
-      type: 'brokerage',
+      type: 'securities',
       institution: 'Test Broker',
       currency: 'CNY',
       holder: 'Test User',
@@ -65,7 +65,7 @@ describe('useAppStore - Accounts', () => {
 
     const accResult = addAccount({
       name: 'Test Account',
-      type: 'brokerage',
+      type: 'securities',
       institution: 'Test Broker',
       currency: 'CNY',
       holder: 'Test User',
@@ -126,7 +126,7 @@ describe('useAppStore - Positions', () => {
     const { addAccount } = useAppStore.getState();
     const result = addAccount({
       name: 'Test Account',
-      type: 'brokerage',
+      type: 'securities',
       institution: 'Test Broker',
       currency: 'CNY',
       holder: 'Test User',
@@ -343,7 +343,7 @@ describe('useAppStore - Trades', () => {
     const { addAccount } = useAppStore.getState();
     const result = addAccount({
       name: 'Test Account',
-      type: 'brokerage',
+      type: 'securities',
       institution: 'Test Broker',
       currency: 'CNY',
       holder: 'Test User',
@@ -433,7 +433,7 @@ describe('useAppStore - executeTrade', () => {
     const { addAccount } = useAppStore.getState();
     const result = addAccount({
       name: 'Test Account',
-      type: 'brokerage',
+      type: 'securities',
       institution: 'Test Broker',
       currency: 'CNY',
       holder: 'Test User',
@@ -736,7 +736,7 @@ describe('useAppStore - Bulk Operations', () => {
       {
         id: 'acc-1',
         name: 'Account 1',
-        type: 'brokerage',
+        type: 'securities',
         institution: 'Broker',
         currency: 'CNY',
         holder: 'User',

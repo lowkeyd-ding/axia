@@ -8,10 +8,10 @@ import { getPrice } from '@/lib/priceApi';
 import { ASSET_TYPE_CONFIG, type Account, type AssetType } from '@/types';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
-  brokerage: '券商',
-  retirement: '养老',
-  savings: '储蓄',
-  cash: '现金',
+  bank: '银行',
+  securities: '证券',
+  fund: '基金',
+  other: '其他',
 };
 
 export default function PositionDetailClient() {
@@ -89,12 +89,12 @@ export default function PositionDetailClient() {
 
   if (!position) {
     return (
-      <div className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100">
-        <header className="sticky top-0 z-10 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800">
+      <div className="flex flex-col min-h-screen bg-zinc-50 text-zinc-900">
+        <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-zinc-200 shadow-sm">
           <div className="max-w-4xl mx-auto px-4 py-5">
             <Link
               href="/positions"
-              className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+              className="inline-flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-700 transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -110,9 +110,9 @@ export default function PositionDetailClient() {
         </header>
         <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-10">
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 mb-4 rounded-full bg-zinc-800/50 flex items-center justify-center">
+            <div className="w-16 h-16 mb-4 rounded-full bg-zinc-100 flex items-center justify-center">
               <svg
-                className="w-8 h-8 text-zinc-600"
+                className="w-8 h-8 text-zinc-400"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -125,7 +125,7 @@ export default function PositionDetailClient() {
                 />
               </svg>
             </div>
-            <h2 className="text-lg font-medium text-zinc-300 mb-1">持仓不存在</h2>
+            <h2 className="text-lg font-medium text-zinc-700 mb-1">持仓不存在</h2>
             <p className="text-sm text-zinc-500">该持仓可能已被删除</p>
           </div>
         </main>
@@ -143,15 +143,15 @@ export default function PositionDetailClient() {
   const canAutoRefresh = !isBank;
 
   const pnlColor =
-    pnlAmount > 0 ? 'text-blue-400' : pnlAmount < 0 ? 'text-red-400' : 'text-zinc-400';
+    pnlAmount > 0 ? 'text-red-500' : pnlAmount < 0 ? 'text-green-600' : 'text-zinc-400';
 
   return (
-    <div className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100">
-      <header className="sticky top-0 z-10 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800">
+    <div className="flex flex-col min-h-screen bg-zinc-50 text-zinc-900">
+      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-zinc-200 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-5">
           <Link
             href="/positions"
-            className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors mb-4"
+            className="inline-flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-700 transition-colors mb-4"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -165,7 +165,7 @@ export default function PositionDetailClient() {
           </Link>
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">{position.name}</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">{position.name}</h1>
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-sm text-zinc-500">{position.symbol}</span>
                 <span className={`text-xs px-1.5 py-0.5 rounded border ${assetConfig.color}`}>
@@ -181,7 +181,7 @@ export default function PositionDetailClient() {
                 <button
                   onClick={handleRefreshPrice}
                   disabled={isRefreshing}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                  className="flex items-center gap-2 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   <svg
                     className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`}
@@ -201,7 +201,7 @@ export default function PositionDetailClient() {
               )}
               <button
                 onClick={handleDelete}
-                className="px-3 py-1.5 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30 rounded-lg transition-colors"
+                className="px-3 py-1.5 text-sm text-red-500 hover:text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-colors"
               >
                 删除
               </button>
@@ -211,9 +211,9 @@ export default function PositionDetailClient() {
       </header>
 
       <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-6">
-        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6 mb-6">
+        <div className="bg-white border border-zinc-200 rounded-2xl p-6 mb-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <span className="text-sm text-zinc-400">
+            <span className="text-sm text-zinc-500">
               {isBank ? '收益金额' : '浮盈亏'}
             </span>
             <span className={`text-lg font-semibold ${pnlColor}`}>
@@ -228,112 +228,112 @@ export default function PositionDetailClient() {
           </div>
         </div>
 
-        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6 mb-6">
-          <h2 className="text-base font-medium text-zinc-200 mb-4">基本信息</h2>
+        <div className="bg-white border border-zinc-200 rounded-2xl p-6 mb-6 shadow-sm">
+          <h2 className="text-base font-medium text-zinc-900 mb-4">基本信息</h2>
           <div className="space-y-4">
-            <div className="flex items-center justify-between py-2 border-b border-zinc-800/60">
+            <div className="flex items-center justify-between py-2 border-b border-zinc-100">
               <span className="text-sm text-zinc-500">所属账户</span>
-              <span className="text-sm text-zinc-200">
+              <span className="text-sm text-zinc-900">
                 {account?.name ?? '未知账户'}
                 {account && (
-                  <span className="ml-2 text-xs text-zinc-500">
+                  <span className="ml-2 text-xs text-zinc-400">
                     ({ACCOUNT_TYPE_LABELS[account.type]})
                   </span>
                 )}
               </span>
             </div>
-            <div className="flex items-center justify-between py-2 border-b border-zinc-800/60">
+            <div className="flex items-center justify-between py-2 border-b border-zinc-100">
               <span className="text-sm text-zinc-500">买入日期</span>
-              <span className="text-sm text-zinc-200">{formatDate(position.createdAt)}</span>
+              <span className="text-sm text-zinc-900">{formatDate(position.createdAt)}</span>
             </div>
             <div className="flex items-center justify-between py-2">
               <span className="text-sm text-zinc-500">最后更新</span>
-              <span className="text-sm text-zinc-200">{formatDate(position.updatedAt)}</span>
+              <span className="text-sm text-zinc-900">{formatDate(position.updatedAt)}</span>
             </div>
           </div>
         </div>
 
-        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6">
-          <h2 className="text-base font-medium text-zinc-200 mb-4">持仓详情</h2>
+        <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
+          <h2 className="text-base font-medium text-zinc-900 mb-4">持仓详情</h2>
           <div className="grid grid-cols-2 gap-6">
             <div className="space-y-4">
-              <div className="py-2 border-b border-zinc-800/60">
+              <div className="py-2 border-b border-zinc-100">
                 <span className="text-xs text-zinc-500 block mb-1">
                   {isBank ? '购买金额' : '持有数量'}
                 </span>
-                <span className="text-lg font-medium text-zinc-100">
+                <span className="text-lg font-medium text-zinc-900">
                   {isBank
                     ? formatCurrency(position.quantity, currency)
                     : formatNumber(position.quantity, 4)}
                 </span>
               </div>
-              <div className="py-2 border-b border-zinc-800/60">
+              <div className="py-2 border-b border-zinc-100">
                 <span className="text-xs text-zinc-500 block mb-1">
                   {isBank ? '购买净值' : '成本价'}
                 </span>
-                <span className="text-lg font-medium text-zinc-100">
+                <span className="text-lg font-medium text-zinc-900">
                   {formatCurrency(position.avgCost, currency)}
                 </span>
               </div>
             </div>
             <div className="space-y-4">
-              <div className="py-2 border-b border-zinc-800/60">
+              <div className="py-2 border-b border-zinc-100">
                 <span className="text-xs text-zinc-500 block mb-1">
                   {isBank ? '当前净值' : '现价'}
                 </span>
-                <span className="text-lg font-medium text-zinc-100">
+                <span className="text-lg font-medium text-zinc-900">
                   {formatCurrency(position.currentPrice, currency)}
                 </span>
               </div>
-              <div className="py-2 border-b border-zinc-800/60">
+              <div className="py-2 border-b border-zinc-100">
                 <span className="text-xs text-zinc-500 block mb-1">
                   {isBank ? '当前价值' : '市值'}
                 </span>
-                <span className="text-lg font-medium text-zinc-100">
+                <span className="text-lg font-medium text-zinc-900">
                   {formatCurrency(currentValue, currency)}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="mt-6 pt-4 border-t border-zinc-800/60">
+          <div className="mt-6 pt-4 border-t border-zinc-100">
             <div className="flex items-center justify-between">
               <span className="text-sm text-zinc-500">
                 {isBank ? '购买成本' : '成本合计'}
               </span>
-              <span className="text-sm text-zinc-300">{formatCurrency(costBasis, currency)}</span>
+              <span className="text-sm text-zinc-700">{formatCurrency(costBasis, currency)}</span>
             </div>
           </div>
         </div>
 
         {positionTrades.length > 0 && (
-          <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6">
-            <h2 className="text-base font-medium text-zinc-200 mb-4">交易记录</h2>
+          <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
+            <h2 className="text-base font-medium text-zinc-900 mb-4">交易记录</h2>
             <div className="space-y-2">
               {positionTrades.slice(0, 5).map((trade) => {
                 const isBuy = trade.type === 'buy';
                 return (
                   <div
                     key={trade.id}
-                    className="flex items-center justify-between py-2 border-b border-zinc-800/40 last:border-0"
+                    className="flex items-center justify-between py-2 border-b border-zinc-100 last:border-0"
                   >
                     <div className="flex items-center gap-2">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded ${
-                        isBuy ? 'bg-blue-500/20 text-blue-400' : 'bg-red-500/20 text-red-400'
+                        isBuy ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-500'
                       }`}>
                         {isBuy ? '买入' : '卖出'}
                       </span>
-                      <span className="text-sm text-zinc-400">
+                      <span className="text-sm text-zinc-600">
                         {trade.quantity} @ {formatCurrency(trade.price, currency)}
                       </span>
                     </div>
                     <div className="text-right">
                       <span className={`text-sm font-medium ${
-                        isBuy ? 'text-blue-400' : 'text-red-400'
+                        isBuy ? 'text-green-600' : 'text-red-500'
                       }`}>
                         {isBuy ? '-' : '+'}{formatCurrency(trade.total, currency)}
                       </span>
-                      <p className="text-xs text-zinc-500">
+                      <p className="text-xs text-zinc-400">
                         {new Date(trade.executedAt).toLocaleDateString('zh-CN')}
                       </p>
                     </div>
@@ -343,7 +343,7 @@ export default function PositionDetailClient() {
               {positionTrades.length > 5 && (
                 <Link
                   href="/trades"
-                  className="block text-center text-sm text-blue-400 hover:text-blue-300 py-2"
+                  className="block text-center text-sm text-blue-500 hover:text-blue-600 py-2"
                 >
                   查看全部 {positionTrades.length} 笔交易 →
                 </Link>

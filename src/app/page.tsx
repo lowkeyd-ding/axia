@@ -28,6 +28,20 @@ const CURRENCY_RATES: Record<string, number> = {
   GBP: 9.1,
 };
 
+// 根据股票代码判断币种
+const getSymbolCurrency = (symbol: string): string => {
+  const upper = symbol.toUpperCase();
+  // 港股代码（5位数字，如 03690 美团、00700 腾讯）
+  if (/^\d{5}$/.test(upper)) return 'HKD';
+  // A股代码（6位数字，沪市以6开头，深市以0、2、3开头）
+  if (/^[0236]\d{5}$/.test(upper)) return 'CNY';
+  // 基金/REITs（5开头）
+  if (/^5\d{5}$/.test(upper)) return 'CNY';
+  // 美股（字母代码，如 AAPL、TSLA）
+  if (/^[A-Z]{1,5}$/.test(upper)) return 'USD';
+  return 'CNY'; // 默认人民币
+};
+
 const ASSET_COLORS = [
   '#3b82f6', // blue - stock
   '#8b5cf6', // violet - fund
@@ -40,10 +54,10 @@ const ASSET_COLORS = [
 ];
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
-  brokerage: '券商',
-  retirement: '养老',
-  savings: '储蓄',
-  cash: '现金',
+  bank: '银行',
+  securities: '证券',
+  fund: '基金',
+  other: '其他',
 };
 
 // 收益率曲线时间范围
@@ -95,33 +109,45 @@ export default function HomePage() {
   const [timeRange, setTimeRange] = useState<TimeRange>('thisYear');
   const [benchmark, setBenchmark] = useState<Benchmark>('none');
 
-  const currencyRates = CURRENCY_RATES;
-
   const totalStats = useMemo(() => {
     let totalValueCNY = 0;
     let totalCostBasis = 0;
+    let totalCashCNY = 0;
 
+    // 计算所有账户余额折算CNY
     accounts.forEach((account) => {
-      const rate = currencyRates[account.currency] ?? 1;
-      const accountPositions = positions.filter((p) => p.accountId === account.id);
-
-      accountPositions.forEach((p) => {
-        const valueCNY = p.currentPrice * p.quantity * rate;
-        const costCNY = p.avgCost * p.quantity * rate;
-        totalValueCNY += valueCNY;
-        totalCostBasis += costCNY;
-      });
+      const rate = CURRENCY_RATES[account.currency] ?? 1;
+      totalCashCNY += account.balance * rate;
     });
 
+    // 计算所有持仓折算CNY
+    positions.forEach((p) => {
+      // 优先使用持仓自己的币种，否则使用账户币种
+      const positionCurrency = p.currency || (() => {
+        const account = accounts.find((a) => a.id === p.accountId);
+        return account?.currency || 'CNY';
+      })();
+      const rate = CURRENCY_RATES[positionCurrency] ?? 1;
+
+      const valueCNY = p.currentPrice * p.quantity * rate;
+      const costCNY = p.avgCost * p.quantity * rate;
+      totalValueCNY += valueCNY;
+      totalCostBasis += costCNY;
+    });
+
+    // 总资产 = 现金 + 持仓市值
+    const totalAssetsCNY = totalCashCNY + totalValueCNY;
     const totalPnL = totalValueCNY - totalCostBasis;
     const pnlPercent = totalCostBasis > 0 ? (totalPnL / totalCostBasis) * 100 : 0;
 
     return {
-      totalValueCNY,
+      totalValueCNY: totalAssetsCNY, // 总资产（现金+持仓）
+      totalInvestCNY: totalValueCNY, // 投资市值（仅持仓）
+      totalCashCNY,
       totalPnL,
       pnlPercent,
     };
-  }, [accounts, positions, currencyRates]);
+  }, [accounts, positions]);
 
   // 计算收益率曲线数据
   const yieldCurveData = useMemo((): YieldDataPoint[] => {
@@ -219,7 +245,9 @@ export default function HomePage() {
       const account = accounts.find((a) => a.id === position.accountId);
       if (!account) return;
 
-      const rate = currencyRates[account.currency] ?? 1;
+      // 优先使用持仓自己的币种，否则使用账户币种
+      const positionCurrency = position.currency || account.currency || 'CNY';
+      const rate = CURRENCY_RATES[positionCurrency] ?? 1;
       const value = position.currentPrice * position.quantity * rate;
 
       const existing = allocationMap.get(position.assetType);
@@ -242,7 +270,7 @@ export default function HomePage() {
           percentage,
         };
       });
-  }, [accounts, positions, currencyRates]);
+  }, [accounts, positions]);
 
   const pieData = assetAllocations.map((a) => ({
     name: a.name,
@@ -251,10 +279,23 @@ export default function HomePage() {
 
   const accountSummaries = useMemo(() => {
     return accounts.map((account) => {
-      const rate = currencyRates[account.currency] ?? 1;
       const accountPositions = positions.filter((p) => p.accountId === account.id);
-      const value = accountPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0);
-      const valueCNY = value * rate;
+      const accountRate = CURRENCY_RATES[account.currency] ?? 1;
+      let investValueCNY = 0;
+
+      // 计算账户持仓折算CNY（考虑持仓可能使用不同币种）
+      accountPositions.forEach((p) => {
+        const positionCurrency = p.currency || account.currency || 'CNY';
+        const rate = CURRENCY_RATES[positionCurrency] ?? 1;
+        investValueCNY += p.currentPrice * p.quantity * rate;
+      });
+
+      // 账户余额折算CNY（港币账户的余额也需要换算）
+      const balanceCNY = account.balance * accountRate;
+
+      // 账户总价值 = 余额 + 持仓价值（都折算为CNY）
+      const valueCNY = balanceCNY + investValueCNY;
+
       const percentage = totalStats.totalValueCNY > 0
         ? (valueCNY / totalStats.totalValueCNY) * 100
         : 0;
@@ -265,13 +306,13 @@ export default function HomePage() {
         type: account.type,
         institution: account.institution,
         holder: account.holder,
-        value,
+        value: account.balance + accountPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0),
         valueCNY,
         currency: account.currency,
         percentage,
       };
     });
-  }, [accounts, positions, currencyRates, totalStats.totalValueCNY]);
+  }, [accounts, positions, totalStats.totalValueCNY]);
 
   const formatCurrency = (value: number, currency = 'CNY') => {
     return new Intl.NumberFormat('zh-CN', {
@@ -288,9 +329,9 @@ export default function HomePage() {
   };
 
   const pnlColor = totalStats.totalPnL > 0
-    ? 'text-blue-600'
+    ? 'text-red-500'
     : totalStats.totalPnL < 0
-      ? 'text-red-500'
+      ? 'text-green-600'
       : 'text-zinc-400';
 
   const hasData = accounts.length > 0 && positions.length > 0;
@@ -302,7 +343,7 @@ export default function HomePage() {
         <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="text-center md:text-left">
-              <p className="text-sm text-zinc-500 mb-2">折CNY总市值</p>
+              <p className="text-sm text-zinc-500 mb-2">持仓总市值（CNY）</p>
               <p className="text-3xl font-bold text-zinc-900">
                 {hasData ? formatCurrency(totalStats.totalValueCNY) : '¥0.00'}
               </p>
@@ -366,16 +407,15 @@ export default function HomePage() {
                     />
                   </PieChart>
                 </ResponsiveContainer>
-                <div className="flex flex-wrap justify-center gap-4 mt-4">
+                <div className="flex flex-wrap justify-center gap-x-3 gap-y-1.5 mt-4 max-w-full">
                   {assetAllocations.map((allocation, index) => (
-                    <div key={allocation.type} className="flex items-center gap-2">
+                    <div key={allocation.type} className="flex items-center gap-1.5 px-1.5">
                       <div
-                        className="w-3 h-3 rounded-full"
+                        className="w-2 h-2 rounded-full flex-shrink-0"
                         style={{ backgroundColor: ASSET_COLORS[index % ASSET_COLORS.length] }}
                       />
-                      <span className="text-sm text-zinc-600">
-                        {allocation.name}{' '}
-                        <span className="text-zinc-900 font-medium">{allocation.percentage.toFixed(1)}%</span>
+                      <span className="text-xs text-zinc-600 whitespace-nowrap">
+                        {allocation.name} <span className="text-zinc-900 font-medium">{allocation.percentage.toFixed(1)}%</span>
                       </span>
                     </div>
                   ))}
@@ -420,7 +460,7 @@ export default function HomePage() {
                     <div className="w-3 h-3 rounded-full bg-blue-500" />
                     <span className="text-sm text-zinc-600">我的组合</span>
                     <span className={`text-sm font-medium ${
-                      currentYield.portfolio >= 0 ? 'text-blue-600' : 'text-red-500'
+                      currentYield.portfolio >= 0 ? 'text-red-500' : 'text-green-600'
                     }`}>
                       {formatPercent(currentYield.portfolio)}
                     </span>
@@ -432,7 +472,7 @@ export default function HomePage() {
                         {BENCHMARK_OPTIONS.find(b => b.value === benchmark)?.label}
                       </span>
                       <span className={`text-sm font-medium ${
-                        currentYield.benchmark >= 0 ? 'text-blue-600' : 'text-red-500'
+                        currentYield.benchmark >= 0 ? 'text-red-500' : 'text-green-600'
                       }`}>
                         {formatPercent(currentYield.benchmark)}
                       </span>
@@ -535,7 +575,7 @@ export default function HomePage() {
               {accountSummaries.map((account) => (
                 <Link
                   key={account.id}
-                  href={`/accounts/${account.id}`}
+                  href={`/positions?account=${account.id}`}
                   className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 hover:border-zinc-300 hover:bg-zinc-100 transition-colors"
                 >
                   <div className="flex items-start justify-between mb-2">
