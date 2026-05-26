@@ -51,6 +51,10 @@ interface AppState {
   setSnapshots: (snapshots: Snapshot[]) => void;
   setTrades: (trades: Trade[]) => void;
   setTargetAllocations: (allocations: TargetAllocation[]) => void;
+
+  // Data export/import
+  exportData: () => string;
+  importData: (jsonString: string) => { success: boolean; message: string };
 }
 
 const getNow = () => new Date().toISOString();
@@ -451,7 +455,64 @@ export const useAppStore = create<AppState>()(
       ),
     }),
   setTargetAllocations: (targetAllocations) => set({ targetAllocations }),
-    }),
+
+  // Data export - returns all data as JSON string
+  exportData: () => {
+    const state = get();
+    const exportObj = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      data: {
+        accounts: state.accounts,
+        positions: state.positions,
+        snapshots: state.snapshots,
+        trades: state.trades,
+        targetAllocations: state.targetAllocations,
+      },
+    };
+    return JSON.stringify(exportObj, null, 2);
+  },
+
+  // Data import - replaces all data with imported JSON
+  importData: (jsonString: string): { success: boolean; message: string } => {
+    try {
+      const parsed = JSON.parse(jsonString);
+      
+      // Validate structure
+      if (!parsed.data || typeof parsed.data !== 'object') {
+        return { success: false, message: '无效的数据格式' };
+      }
+
+      const { accounts = [], positions = [], snapshots = [], trades = [], targetAllocations = [] } = parsed.data;
+
+      // Validate arrays
+      if (!Array.isArray(accounts) || !Array.isArray(positions) || 
+          !Array.isArray(snapshots) || !Array.isArray(trades)) {
+        return { success: false, message: '数据格式错误：缺少必需字段' };
+      }
+
+      // Import data
+      set({
+        accounts,
+        positions,
+        snapshots: [...snapshots].sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        ),
+        trades: [...trades].sort(
+          (a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime()
+        ),
+        targetAllocations,
+      });
+
+      return { 
+        success: true, 
+        message: `成功导入：${accounts.length} 个账户，${positions.length} 笔持仓，${snapshots.length} 个快照，${trades.length} 笔交易` 
+      };
+    } catch (error) {
+      return { success: false, message: 'JSON 解析失败，请检查文件格式' };
+    }
+  },
+}),
     {
       name: 'axia-storage',
       storage: createJSONStorage(() => localStorage),

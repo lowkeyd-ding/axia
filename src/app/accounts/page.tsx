@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { Account } from '@/types';
 
@@ -46,15 +46,26 @@ const initialFormData: FormData = {
 };
 
 export default function AccountsPage() {
-  const { accounts, positions, addAccount } = useAppStore();
+  const { accounts, positions, addAccount, exportData, importData } = useAppStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const getAccountValue = (accountId: string) => {
     const accountPositions = positions.filter((p) => p.accountId === accountId);
     return accountPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0);
   };
+
+  // Toast auto-dismiss
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   const formatCurrency = (value: number, currency: string) => {
     return new Intl.NumberFormat('zh-CN', {
@@ -72,6 +83,48 @@ export default function AccountsPage() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value);
+  };
+
+  // Data export handler
+  const handleExport = () => {
+    const jsonData = exportData();
+    const blob = new Blob([jsonData], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `axia-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setToast({ type: 'success', message: '数据已导出' });
+  };
+
+  // Data import handler
+  const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      const result = importData(content);
+      if (result.success) {
+        setToast({ type: 'success', message: result.message });
+        setIsDataModalOpen(false);
+      } else {
+        setToast({ type: 'error', message: result.message });
+      }
+    };
+    reader.onerror = () => {
+      setToast({ type: 'error', message: '读取文件失败' });
+    };
+    reader.readAsText(file);
+    
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const validateForm = (): boolean => {
@@ -121,15 +174,48 @@ export default function AccountsPage() {
     <div className="flex flex-col min-h-screen bg-zinc-50 text-zinc-900">
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-zinc-200 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-5">
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">我的账户</h1>
-          {accounts.length > 0 && (
-            <p className="mt-1 text-sm text-zinc-500">
-              共 {accounts.length} 个账户，折CNY总市值{' '}
-              <span className="text-blue-600 font-medium">{formatCNY(totalValueCNY)}</span>
-            </p>
-          )}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">我的账户</h1>
+              {accounts.length > 0 && (
+                <p className="mt-1 text-sm text-zinc-500">
+                  共 {accounts.length} 个账户，折CNY总市值{' '}
+                  <span className="text-blue-600 font-medium">{formatCNY(totalValueCNY)}</span>
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => setIsDataModalOpen(true)}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+              数据管理
+            </button>
+          </div>
         </div>
       </header>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-lg shadow-xl ${
+          toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+        }`}>
+          <div className="flex items-center gap-2">
+            {toast.type === 'success' ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            )}
+            <span className="font-medium">{toast.message}</span>
+          </div>
+        </div>
+      )}
 
       <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-6">
         {accounts.length === 0 ? (
@@ -407,6 +493,109 @@ export default function AccountsPage() {
                 className="flex-1 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
               >
                 添加
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Data Management Modal */}
+      {isDataModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          onClick={(e) => e.target === e.currentTarget && setIsDataModalOpen(false)}
+        >
+          <div className="w-full max-w-md bg-white border border-zinc-200 rounded-2xl shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200">
+              <h2 className="text-lg font-semibold text-zinc-900">数据管理</h2>
+              <button
+                onClick={() => setIsDataModalOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-zinc-500">
+                将当前数据导出为 JSON 文件，或从备份文件导入数据。
+              </p>
+
+              {/* Export Section */}
+              <div className="p-4 bg-zinc-50 rounded-xl border border-zinc-200">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium text-zinc-900">导出数据</h3>
+                    <p className="text-xs text-zinc-500">将账户、持仓、快照等数据导出为备份文件</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleExport}
+                  className="w-full px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  下载备份文件
+                </button>
+              </div>
+
+              {/* Import Section */}
+              <div className="p-4 bg-zinc-50 rounded-xl border border-zinc-200">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium text-zinc-900">导入数据</h3>
+                    <p className="text-xs text-zinc-500">从备份文件恢复数据（将覆盖现有数据）</p>
+                  </div>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  onChange={handleImport}
+                  className="hidden"
+                  id="import-file"
+                />
+                <label
+                  htmlFor="import-file"
+                  className="w-full px-4 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  选择备份文件
+                </label>
+              </div>
+
+              {/* Warning */}
+              <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                <svg className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <p className="text-xs text-amber-700">
+                  导入数据会<strong>完全覆盖</strong>现有数据，请在导入前确认已做好备份。
+                </p>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-zinc-200">
+              <button
+                onClick={() => setIsDataModalOpen(false)}
+                className="w-full px-4 py-2.5 border border-zinc-300 rounded-lg text-zinc-700 hover:bg-zinc-50 transition-colors"
+              >
+                关闭
               </button>
             </div>
           </div>
