@@ -11,10 +11,26 @@ import {
   ActionResult,
   TradeExecutionResult,
 } from '@/types';
-import { syncToCloud, loadFromCloud } from './sync';
+import { syncToCloud as cloudSyncToCloud, loadFromCloud as cloudLoadFromCloud } from './sync';
 
 // Debounce timer for syncing
 let syncTimer: NodeJS.Timeout | null = null;
+
+// 获取 Supabase 配置
+function getSupabaseConfig() {
+  if (typeof window === 'undefined') {
+    // 服务端
+    return {
+      url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    };
+  }
+  // 客户端
+  return {
+    url: (window as any).__SUPABASE_URL__,
+    anonKey: (window as any).__SUPABASE_ANON_KEY__,
+  };
+}
 
 // Round to 4 decimal places to avoid floating point errors
 function roundQuantity(value: number): number {
@@ -121,7 +137,12 @@ export const useAppStore = create<AppState>()(
     
     return new Promise((resolve) => {
       syncTimer = setTimeout(async () => {
-        const success = await syncToCloud(data);
+        const config = getSupabaseConfig();
+        if (!config?.url || !config?.anonKey) {
+          resolve(false);
+          return;
+        }
+        const success = await cloudSyncToCloud(data, config.url, config.anonKey);
         if (success) {
           set({ _lastSyncedAt: new Date().toISOString() });
         }
@@ -145,7 +166,11 @@ export const useAppStore = create<AppState>()(
       transfers: state.transfers,
       targetAllocations: state.targetAllocations,
     };
-    const success = await syncToCloud(data);
+    const config = getSupabaseConfig();
+    if (!config?.url || !config?.anonKey) {
+      return false;
+    }
+    const success = await cloudSyncToCloud(data, config.url, config.anonKey);
     if (success) {
       set({ _lastSyncedAt: new Date().toISOString() });
     }
@@ -153,7 +178,13 @@ export const useAppStore = create<AppState>()(
   },
 
   loadFromCloud: async () => {
-    const cloudData = await loadFromCloud();
+    const config = getSupabaseConfig();
+    if (!config?.url || !config?.anonKey) {
+      set({ _hasLoadedFromCloud: true });
+      return false;
+    }
+    
+    const cloudData = await cloudLoadFromCloud(config.url, config.anonKey);
     if (cloudData) {
       set({
         accounts: cloudData.accounts || [],

@@ -1,21 +1,45 @@
-const API_BASE = '/api/sync';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+
+// Supabase 客户端缓存
+let supabaseClient: SupabaseClient | null = null;
+
+export function getSupabaseClient(url: string, anonKey: string) {
+  if (!supabaseClient) {
+    supabaseClient = createClient(url, anonKey);
+  }
+  return supabaseClient;
+}
+
+const DATA_KEY = 'axia_data';
 
 // 同步数据到云端
-export async function syncToCloud(data: {
-  accounts: any[];
-  positions: any[];
-  snapshots: any[];
-  trades: any[];
-  transfers: any[];
-  targetAllocations: any[];
-}): Promise<boolean> {
+export async function syncToCloud(
+  data: {
+    accounts: any[];
+    positions: any[];
+    snapshots: any[];
+    trades: any[];
+    transfers: any[];
+    targetAllocations: any[];
+  },
+  url: string,
+  anonKey: string
+): Promise<boolean> {
   try {
-    const response = await fetch(API_BASE, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data }),
-    });
-    return response.ok;
+    const client = getSupabaseClient(url, anonKey);
+    const record = {
+      id: DATA_KEY,
+      data: data,
+      updated_at: new Date().toISOString(),
+    };
+    
+    const { error } = await client.from('axia_data').upsert(record);
+
+    if (error) {
+      console.error('Supabase sync error:', error);
+      return false;
+    }
+    return true;
   } catch (error) {
     console.error('Failed to sync to cloud:', error);
     return false;
@@ -23,7 +47,10 @@ export async function syncToCloud(data: {
 }
 
 // 从云端加载数据
-export async function loadFromCloud(): Promise<{
+export async function loadFromCloud(
+  url: string,
+  anonKey: string
+): Promise<{
   accounts: any[];
   positions: any[];
   snapshots: any[];
@@ -32,26 +59,19 @@ export async function loadFromCloud(): Promise<{
   targetAllocations: any[];
 } | null> {
   try {
-    const response = await fetch(API_BASE);
-    if (response.ok) {
-      const result = await response.json();
-      if (result.data) {
-        return result.data;
-      }
+    const client = getSupabaseClient(url, anonKey);
+    const { data, error } = await client
+      .from('axia_data')
+      .select('data')
+      .eq('id', DATA_KEY)
+      .single();
+
+    if (error || !data) {
+      return null;
     }
-    return null;
+    return data.data;
   } catch (error) {
     console.error('Failed to load from cloud:', error);
     return null;
   }
-}
-
-// 检查是否应该使用云端存储
-export function shouldUseCloudSync(): boolean {
-  // 在浏览器环境中，且不是服务端渲染
-  if (typeof window === 'undefined') return false;
-  
-  // 检查是否有 Vercel 环境变量（仅在服务端有效）
-  // 客户端无法直接访问环境变量，我们通过检查 API 响应来判断
-  return true;
 }
