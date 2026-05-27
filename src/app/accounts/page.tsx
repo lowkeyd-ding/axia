@@ -66,7 +66,7 @@ const initialFormData: FormData = {
 };
 
 export default function AccountsPage() {
-  const { accounts, positions, addAccount, addTransfer, transfers, exportData, importData } = useAppStore();
+  const { accounts, positions, addAccount, deleteAccount, addTransfer, transfers, exportData, importData } = useAppStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -184,6 +184,22 @@ export default function AccountsPage() {
       note: ''
     });
     setTransferError('');
+  };
+
+  const handleDeleteAccount = (accountId: string, accountName: string) => {
+    const accountPositions = positions.filter(p => p.accountId === accountId);
+    const confirmMessage = accountPositions.length > 0
+      ? `确定要删除账户"${accountName}"吗？\n该账户下有 ${accountPositions.length} 个持仓，删除账户将同时删除所有关联持仓。`
+      : `确定要删除账户"${accountName}"吗？`;
+
+    if (confirm(confirmMessage)) {
+      const result = deleteAccount(accountId);
+      if (result.success) {
+        setToast({ type: 'success', message: '账户已删除' });
+      } else {
+        setToast({ type: 'error', message: result.error || '删除失败' });
+      }
+    }
   };
 
   const toggleAccount = (accountId: string) => {
@@ -695,6 +711,19 @@ export default function AccountsPage() {
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </svg>
+                      {/* Delete button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteAccount(account.id, account.name);
+                        }}
+                        className="p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="删除账户"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
                     </div>
                   </button>
 
