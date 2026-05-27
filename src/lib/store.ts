@@ -11,6 +11,10 @@ import {
   ActionResult,
   TradeExecutionResult,
 } from '@/types';
+import { syncToCloud, loadFromCloud } from './sync';
+
+// Debounce timer for syncing
+let syncTimer: NodeJS.Timeout | null = null;
 
 // Round to 4 decimal places to avoid floating point errors
 function roundQuantity(value: number): number {
@@ -30,6 +34,10 @@ interface AppState {
   trades: Trade[];
   transfers: Transfer[];
   targetAllocations: TargetAllocation[];
+
+  // Sync state
+  _hasLoadedFromCloud: boolean;
+  _lastSyncedAt: string | null;
 
   // Account actions
   addAccount: (account: Omit<Account, 'id' | 'createdAt' | 'updatedAt'>) => ActionResult<Account>;
@@ -72,6 +80,11 @@ interface AppState {
   // Data export/import
   exportData: () => string;
   importData: (jsonString: string) => { success: boolean; message: string };
+
+  // Cloud sync
+  syncToCloud: () => Promise<boolean>;
+  forceSyncNow: () => Promise<boolean>;
+  loadFromCloud: () => Promise<boolean>;
 }
 
 const getNow = () => new Date().toISOString();
@@ -86,6 +99,77 @@ export const useAppStore = create<AppState>()(
   trades: [],
   transfers: [],
   targetAllocations: [],
+  _hasLoadedFromCloud: false,
+  _lastSyncedAt: null,
+
+  // Cloud sync
+  syncToCloud: async () => {
+    const state = get();
+    const data = {
+      accounts: state.accounts,
+      positions: state.positions,
+      snapshots: state.snapshots,
+      trades: state.trades,
+      transfers: state.transfers,
+      targetAllocations: state.targetAllocations,
+    };
+    
+    // Debounce sync - wait 1 second after last change
+    if (syncTimer) {
+      clearTimeout(syncTimer);
+    }
+    
+    return new Promise((resolve) => {
+      syncTimer = setTimeout(async () => {
+        const success = await syncToCloud(data);
+        if (success) {
+          set({ _lastSyncedAt: new Date().toISOString() });
+        }
+        resolve(success);
+      }, 1000);
+    });
+  },
+
+  // Force sync immediately (no debounce)
+  forceSyncNow: async () => {
+    if (syncTimer) {
+      clearTimeout(syncTimer);
+      syncTimer = null;
+    }
+    const state = get();
+    const data = {
+      accounts: state.accounts,
+      positions: state.positions,
+      snapshots: state.snapshots,
+      trades: state.trades,
+      transfers: state.transfers,
+      targetAllocations: state.targetAllocations,
+    };
+    const success = await syncToCloud(data);
+    if (success) {
+      set({ _lastSyncedAt: new Date().toISOString() });
+    }
+    return success;
+  },
+
+  loadFromCloud: async () => {
+    const cloudData = await loadFromCloud();
+    if (cloudData) {
+      set({
+        accounts: cloudData.accounts || [],
+        positions: cloudData.positions || [],
+        snapshots: cloudData.snapshots || [],
+        trades: cloudData.trades || [],
+        transfers: cloudData.transfers || [],
+        targetAllocations: cloudData.targetAllocations || [],
+        _hasLoadedFromCloud: true,
+        _lastSyncedAt: new Date().toISOString(),
+      });
+      return true;
+    }
+    set({ _hasLoadedFromCloud: true });
+    return false;
+  },
 
   // Account actions
   addAccount: (accountData) => {
@@ -646,8 +730,34 @@ export const useAppStore = create<AppState>()(
         positions: state.positions,
         snapshots: state.snapshots,
         trades: state.trades,
+        transfers: state.transfers,
         targetAllocations: state.targetAllocations,
+        _hasLoadedFromCloud: state._hasLoadedFromCloud,
+        _lastSyncedAt: state._lastSyncedAt,
       }),
+      onRehydrateStorage: () => (state) => {
+        // 数据从 localStorage 恢复后，尝试从云端同步
+        if (state && !state._hasLoadedFromCloud) {
+          // 避免无限循环 - 仅在没有从云端加载过数据时加载
+        }
+      },
     }
   )
 );
+
+// 延迟加载云端数据（避免 SSR 问题）
+let cloudInitPromise: Promise<void> | null = null;
+
+export function initializeCloudSync() {
+  if (typeof window === 'undefined') return;
+  if (cloudInitPromise) return cloudInitPromise;
+
+  cloudInitPromise = (async () => {
+    const store = useAppStore.getState();
+    if (!store._hasLoadedFromCloud) {
+      await store.loadFromCloud();
+    }
+  })();
+
+  return cloudInitPromise;
+}
