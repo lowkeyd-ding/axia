@@ -34,6 +34,33 @@ function roundCurrency(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+// 延迟同步到云端（防抖）
+function scheduleCloudSync() {
+  if (syncTimer) {
+    clearTimeout(syncTimer);
+  }
+  syncTimer = setTimeout(async () => {
+    const config = getSupabaseConfig();
+    if (!config?.url || !config?.anonKey) {
+      console.log('[CloudSync] Missing Supabase config, skipping sync');
+      return;
+    }
+    const state = useAppStore.getState();
+    const data = {
+      accounts: state.accounts,
+      positions: state.positions,
+      snapshots: state.snapshots,
+      trades: state.trades,
+      transfers: state.transfers,
+      targetAllocations: state.targetAllocations,
+    };
+    const success = await cloudSyncToCloud(data, config.url, config.anonKey);
+    if (success) {
+      console.log('[CloudSync] Auto-synced to cloud');
+    }
+  }, 1000);
+}
+
 interface AppState {
   // State
   accounts: Account[];
@@ -171,13 +198,21 @@ export const useAppStore = create<AppState>()(
 
   loadFromCloud: async () => {
     const config = getSupabaseConfig();
+    console.log('[CloudSync] Loading from cloud...', { 
+      hasUrl: !!config?.url, 
+      hasKey: !!config?.anonKey,
+      url: config?.url,
+    });
+    
     if (!config?.url || !config?.anonKey) {
+      console.warn('[CloudSync] Supabase not configured, using localStorage only');
       set({ _hasLoadedFromCloud: true });
       return false;
     }
     
     const cloudData = await cloudLoadFromCloud(config.url, config.anonKey);
     if (cloudData) {
+      console.log('[CloudSync] Loaded from cloud:', cloudData);
       set({
         accounts: cloudData.accounts || [],
         positions: cloudData.positions || [],
@@ -190,6 +225,7 @@ export const useAppStore = create<AppState>()(
       });
       return true;
     }
+    console.log('[CloudSync] No cloud data found, keeping local data');
     set({ _hasLoadedFromCloud: true });
     return false;
   },
@@ -205,6 +241,7 @@ export const useAppStore = create<AppState>()(
     set((state) => ({
       accounts: [...state.accounts, newAccount],
     }));
+    scheduleCloudSync();
     return { success: true, data: newAccount };
   },
 
@@ -221,6 +258,7 @@ export const useAppStore = create<AppState>()(
     set((state) => ({
       accounts: state.accounts.map((a) => (a.id === id ? updatedAccount : a)),
     }));
+    scheduleCloudSync();
     return { success: true, data: updatedAccount };
   },
 
@@ -234,6 +272,7 @@ export const useAppStore = create<AppState>()(
       positions: state.positions.filter((p) => p.accountId !== id),
       trades: state.trades.filter((t) => t.accountId !== id),
     }));
+    scheduleCloudSync();
     return { success: true, data: id };
   },
 
@@ -248,6 +287,7 @@ export const useAppStore = create<AppState>()(
     set((state) => ({
       positions: [...state.positions, newPosition],
     }));
+    scheduleCloudSync();
     return { success: true, data: newPosition };
   },
 
@@ -264,6 +304,7 @@ export const useAppStore = create<AppState>()(
     set((state) => ({
       positions: state.positions.map((p) => (p.id === id ? updatedPosition : p)),
     }));
+    scheduleCloudSync();
     return { success: true, data: updatedPosition };
   },
 
@@ -275,6 +316,7 @@ export const useAppStore = create<AppState>()(
     set((state) => ({
       positions: state.positions.filter((p) => p.id !== id),
     }));
+    scheduleCloudSync();
     return { success: true, data: id };
   },
 
@@ -290,6 +332,7 @@ export const useAppStore = create<AppState>()(
         (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
       ),
     }));
+    scheduleCloudSync();
     return { success: true, data: newSnapshot };
   },
 
@@ -307,6 +350,7 @@ export const useAppStore = create<AppState>()(
         .map((s) => (s.id === id ? updatedSnapshot : s))
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
     }));
+    scheduleCloudSync();
     return { success: true, data: updatedSnapshot };
   },
 
@@ -318,6 +362,7 @@ export const useAppStore = create<AppState>()(
     set((state) => ({
       snapshots: state.snapshots.filter((s) => s.id !== id),
     }));
+    scheduleCloudSync();
     return { success: true, data: id };
   },
 
@@ -333,6 +378,7 @@ export const useAppStore = create<AppState>()(
         (a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime()
       ),
     }));
+    scheduleCloudSync();
     return { success: true, data: newTrade };
   },
 
@@ -485,6 +531,8 @@ export const useAppStore = create<AppState>()(
       };
     });
 
+    scheduleCloudSync();
+
     return {
       success: true,
       trade: newTrade,
@@ -507,6 +555,7 @@ export const useAppStore = create<AppState>()(
         .map((t) => (t.id === id ? updatedTrade : t))
         .sort((a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime()),
     }));
+    scheduleCloudSync();
     return { success: true, data: updatedTrade };
   },
 
@@ -518,6 +567,7 @@ export const useAppStore = create<AppState>()(
     set((state) => ({
       trades: state.trades.filter((t) => t.id !== id),
     }));
+    scheduleCloudSync();
     return { success: true, data: id };
   },
 
@@ -593,6 +643,7 @@ export const useAppStore = create<AppState>()(
       }),
     }));
 
+    scheduleCloudSync();
     return { success: true, data: newTransfer };
   },
 
@@ -618,6 +669,7 @@ export const useAppStore = create<AppState>()(
       }),
     }));
 
+    scheduleCloudSync();
     return { success: true, data: id };
   },
 
@@ -632,6 +684,7 @@ export const useAppStore = create<AppState>()(
     set((state) => ({
       targetAllocations: [...state.targetAllocations, newAllocation],
     }));
+    scheduleCloudSync();
     return { success: true, data: newAllocation };
   },
 
@@ -650,6 +703,7 @@ export const useAppStore = create<AppState>()(
         a.id === id ? updatedAllocation : a
       ),
     }));
+    scheduleCloudSync();
     return { success: true, data: updatedAllocation };
   },
 
@@ -661,31 +715,47 @@ export const useAppStore = create<AppState>()(
     set((state) => ({
       targetAllocations: state.targetAllocations.filter((a) => a.id !== id),
     }));
+    scheduleCloudSync();
     return { success: true, data: id };
   },
 
   // Bulk operations
-  setAccounts: (accounts) => set({ accounts }),
-  setPositions: (positions) => set({ positions }),
-  setSnapshots: (snapshots) =>
+  setAccounts: (accounts) => {
+    set({ accounts });
+    scheduleCloudSync();
+  },
+  setPositions: (positions) => {
+    set({ positions });
+    scheduleCloudSync();
+  },
+  setSnapshots: (snapshots) => {
     set({
       snapshots: [...snapshots].sort(
         (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
       ),
-    }),
-  setTrades: (trades) =>
+    });
+    scheduleCloudSync();
+  },
+  setTrades: (trades) => {
     set({
       trades: [...trades].sort(
         (a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime()
       ),
-    }),
-  setTransfers: (transfers) =>
+    });
+    scheduleCloudSync();
+  },
+  setTransfers: (transfers) => {
     set({
       transfers: [...transfers].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       ),
-    }),
-  setTargetAllocations: (targetAllocations) => set({ targetAllocations }),
+    });
+    scheduleCloudSync();
+  },
+  setTargetAllocations: (targetAllocations) => {
+    set({ targetAllocations });
+    scheduleCloudSync();
+  },
 
   // Data export - returns all data as JSON string
   exportData: () => {
@@ -736,6 +806,8 @@ export const useAppStore = create<AppState>()(
         targetAllocations,
       });
 
+      scheduleCloudSync();
+
       return { 
         success: true, 
         message: `成功导入：${accounts.length} 个账户，${positions.length} 笔持仓，${snapshots.length} 个快照，${trades.length} 笔交易` 
@@ -755,13 +827,12 @@ export const useAppStore = create<AppState>()(
         trades: state.trades,
         transfers: state.transfers,
         targetAllocations: state.targetAllocations,
-        _hasLoadedFromCloud: state._hasLoadedFromCloud,
         _lastSyncedAt: state._lastSyncedAt,
       }),
       onRehydrateStorage: () => (state) => {
-        // 数据从 localStorage 恢复后，尝试从云端同步
-        if (state && !state._hasLoadedFromCloud) {
-          // 避免无限循环 - 仅在没有从云端加载过数据时加载
+        // 数据从 localStorage 恢复后，总是尝试从云端加载最新数据
+        if (state) {
+          state._hasLoadedFromCloud = false;
         }
       },
     }

@@ -36,12 +36,13 @@ export async function syncToCloud(
     const { error } = await client.from('axia_data').upsert(record);
 
     if (error) {
-      console.error('Supabase sync error:', error);
+      console.error('[CloudSync] Sync error:', error);
       return false;
     }
+    console.log('[CloudSync] Data synced to cloud successfully');
     return true;
   } catch (error) {
-    console.error('Failed to sync to cloud:', error);
+    console.error('[CloudSync] Failed to sync to cloud:', error);
     return false;
   }
 }
@@ -67,8 +68,10 @@ export async function loadFromCloud(
       .single();
 
     if (error || !data) {
+      console.log('[CloudSync] No data in cloud or error:', error);
       return null;
     }
+    console.log('[CloudSync] Data loaded from cloud:', data.data);
     return data.data;
   } catch (error) {
     console.error('Failed to load from cloud:', error);
