@@ -18,17 +18,9 @@ let syncTimer: NodeJS.Timeout | null = null;
 
 // 获取 Supabase 配置
 function getSupabaseConfig() {
-  if (typeof window === 'undefined') {
-    // 服务端
-    return {
-      url: process.env.NEXT_PUBLIC_SUPABASE_URL,
-      anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    };
-  }
-  // 客户端
   return {
-    url: (window as any).__SUPABASE_URL__,
-    anonKey: (window as any).__SUPABASE_ANON_KEY__,
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   };
 }
 
