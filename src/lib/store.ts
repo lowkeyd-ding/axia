@@ -53,8 +53,13 @@ async function loadFromCloudData(state: any) {
   }
 }
 
-// Round to 4 decimal places to avoid floating point errors
+// Round to 4 decimal places for quantity and price
 function roundQuantity(value: number): number {
+  return Math.round(value * 10000) / 10000;
+}
+
+// Round to 4 decimal places for price (especially for funds)
+function roundPrice(value: number): number {
   return Math.round(value * 10000) / 10000;
 }
 
@@ -308,6 +313,9 @@ export const useAppStore = create<AppState>()(
     const newPosition: Position = {
       ...positionData,
       id: uuidv4(),
+      quantity: roundQuantity(positionData.quantity),
+      avgCost: roundPrice(positionData.avgCost),
+      currentPrice: roundPrice(positionData.currentPrice),
       createdAt: getNow(),
       updatedAt: getNow(),
     };
@@ -323,9 +331,21 @@ export const useAppStore = create<AppState>()(
     if (!position) {
       return { success: false, error: `Position with id ${id} not found` };
     }
+    // Round price fields to 4 decimal places
+    const roundedUpdates: Partial<Position> = {};
+    if (updates.currentPrice !== undefined) {
+      roundedUpdates.currentPrice = roundPrice(updates.currentPrice);
+    }
+    if (updates.avgCost !== undefined) {
+      roundedUpdates.avgCost = roundPrice(updates.avgCost);
+    }
+    if (updates.quantity !== undefined) {
+      roundedUpdates.quantity = roundQuantity(updates.quantity);
+    }
     const updatedPosition: Position = {
       ...position,
       ...updates,
+      ...roundedUpdates,
       updatedAt: getNow(),
     };
     set((state) => ({
@@ -480,9 +500,9 @@ export const useAppStore = create<AppState>()(
         if (existingPosition) {
           // Update position: recalculate average cost
           const newQuantity = roundQuantity(existingPosition.quantity + tradeData.quantity);
-          const newTotalCost = roundCurrency((existingPosition.avgCost * existingPosition.quantity) + tradeData.total);
-          const newAvgCost = roundCurrency(newTotalCost / newQuantity);
-          const newCurrentPrice = roundCurrency(tradeData.price); // Use trade price as current
+          const newTotalCost = roundPrice((existingPosition.avgCost * existingPosition.quantity) + tradeData.total);
+          const newAvgCost = roundPrice(newTotalCost / newQuantity);
+          const newCurrentPrice = roundPrice(tradeData.price); // Use trade price as current
 
           const updated = {
             ...existingPosition,
@@ -504,8 +524,8 @@ export const useAppStore = create<AppState>()(
             symbol: tradeData.symbol,
             name: tradeData.name,
             quantity: roundQuantity(tradeData.quantity),
-            avgCost: roundCurrency(tradeData.price),
-            currentPrice: roundCurrency(tradeData.price),
+            avgCost: roundPrice(tradeData.price),
+            currentPrice: roundPrice(tradeData.price),
             createdAt: getNow(),
             updatedAt: getNow(),
           };
