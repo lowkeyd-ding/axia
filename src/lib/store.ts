@@ -11,21 +11,26 @@ import {
   ActionResult,
   TradeExecutionResult,
 } from '@/types';
-import { syncToCloud as cloudSyncToCloud, loadFromCloud as cloudLoadFromCloud } from './sync';
+import { syncToCloud as cloudSyncToCloud, loadFromCloud as cloudLoadFromCloud, getSupabaseConfig as fetchSupabaseConfig } from './sync';
 
 // Debounce timer for syncing
 let syncTimer: NodeJS.Timeout | null = null;
 
-// 获取 Supabase 配置
-function getSupabaseConfig() {
-  return {
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  };
+// 获取 Supabase 配置（从服务端 API 获取）
+async function getSupabaseConfig() {
+  return await fetchSupabaseConfig();
 }
 
 // 加载云端数据并更新 store（必须在 persist 配置之前定义）
-async function loadFromCloudData(url: string, anonKey: string, state: any) {
+async function loadFromCloudData(state: any) {
+  console.log('[CloudSync] Attempting to load from cloud...');
+  try {
+    const config = await getSupabaseConfig();
+    if (!config) {
+      console.warn('[CloudSync] Failed to get Supabase config');
+      return;
+    }
+    const cloudData = await cloudLoadFromCloud(config.url, config.anonKey);
   console.log('[CloudSync] Attempting to load from cloud...');
   try {
     const cloudData = await cloudLoadFromCloud(url, anonKey);
@@ -59,13 +64,13 @@ function roundCurrency(value: number): number {
 }
 
 // 延迟同步到云端（防抖）
-function scheduleCloudSync() {
+async function scheduleCloudSync() {
   if (syncTimer) {
     clearTimeout(syncTimer);
   }
   syncTimer = setTimeout(async () => {
-    const config = getSupabaseConfig();
-    if (!config?.url || !config?.anonKey) {
+    const config = await getSupabaseConfig();
+    if (!config) {
       console.log('[CloudSync] Missing Supabase config, skipping sync');
       return;
     }
@@ -180,8 +185,8 @@ export const useAppStore = create<AppState>()(
     
     return new Promise((resolve) => {
       syncTimer = setTimeout(async () => {
-        const config = getSupabaseConfig();
-        if (!config?.url || !config?.anonKey) {
+        const config = await getSupabaseConfig();
+        if (!config) {
           resolve(false);
           return;
         }
@@ -209,8 +214,8 @@ export const useAppStore = create<AppState>()(
       transfers: state.transfers,
       targetAllocations: state.targetAllocations,
     };
-    const config = getSupabaseConfig();
-    if (!config?.url || !config?.anonKey) {
+    const config = await getSupabaseConfig();
+    if (!config) {
       return false;
     }
     const success = await cloudSyncToCloud(data, config.url, config.anonKey);
@@ -221,14 +226,12 @@ export const useAppStore = create<AppState>()(
   },
 
   loadFromCloud: async () => {
-    const config = getSupabaseConfig();
+    const config = await getSupabaseConfig();
     console.log('[CloudSync] Loading from cloud...', { 
-      hasUrl: !!config?.url, 
-      hasKey: !!config?.anonKey,
-      url: config?.url,
+      hasConfig: !!config,
     });
     
-    if (!config?.url || !config?.anonKey) {
+    if (!config) {
       console.warn('[CloudSync] Supabase not configured, using localStorage only');
       set({ _hasLoadedFromCloud: true });
       return false;
@@ -857,14 +860,9 @@ export const useAppStore = create<AppState>()(
         // 数据从 localStorage 恢复后，在下一个事件循环中加载云端数据
         // 这样可以确保 store 已完全初始化
         if (state && typeof window !== 'undefined') {
-          setTimeout(() => {
-            const config = getSupabaseConfig();
-            if (!config?.url || !config?.anonKey) {
-              console.warn('[CloudSync] Supabase not configured, skipping cloud load');
-              return;
-            }
+          setTimeout(async () => {
             console.log('[CloudSync] Loading from cloud after hydration...');
-            loadFromCloudData(config.url, config.anonKey, state);
+            await loadFromCloudData(state);
           }, 0);
         }
       },
@@ -880,14 +878,9 @@ export function initializeCloudSync() {
   if (cloudInitPromise) return cloudInitPromise;
 
   cloudInitPromise = (async () => {
-    const config = getSupabaseConfig();
-    if (!config?.url || !config?.anonKey) {
-      console.warn('[CloudSync] Supabase not configured');
-      return;
-    }
     // 等待一小段时间确保 hydration 完成
     await new Promise(resolve => setTimeout(resolve, 100));
-    await loadFromCloudData(config.url, config.anonKey, useAppStore.getState());
+    await loadFromCloudData(useAppStore.getState());
   })();
 
   return cloudInitPromise;

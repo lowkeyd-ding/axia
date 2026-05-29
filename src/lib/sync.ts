@@ -10,6 +10,26 @@ export function getSupabaseClient(url: string, anonKey: string) {
   return supabaseClient;
 }
 
+// 获取 Supabase 配置（从服务端 API 获取，确保环境变量被正确注入）
+export async function getSupabaseConfig(): Promise<{ url: string; anonKey: string } | null> {
+  try {
+    const response = await fetch('/api/config');
+    if (!response.ok) {
+      console.error('[CloudSync] Failed to fetch config:', response.status);
+      return null;
+    }
+    const config = await response.json();
+    if (!config.url || !config.anonKey) {
+      console.error('[CloudSync] Invalid config received');
+      return null;
+    }
+    return { url: config.url, anonKey: config.anonKey };
+  } catch (error) {
+    console.error('[CloudSync] Error fetching config:', error);
+    return null;
+  }
+}
+
 const DATA_KEY = 'axia_data';
 
 // 同步数据到云端
