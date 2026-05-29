@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { Account } from '@/types';
 import * as XLSX from 'xlsx';
+import { getExchangeRates, type ExchangeRates } from '@/lib/exchangeRates';
 
 const ACCOUNT_TYPES = [
   { value: 'bank', label: '银行' },
@@ -28,13 +29,14 @@ const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
   other: '其他',
 };
 
-const CURRENCY_RATES: Record<string, number> = {
+// Default rates as fallback
+const DEFAULT_RATES: ExchangeRates = {
   CNY: 1,
-  USD: 7.2,
   HKD: 0.92,
-  EUR: 7.8,
+  USD: 7.25,
+  EUR: 7.85,
   JPY: 0.048,
-  GBP: 9.1,
+  GBP: 9.15,
 };
 
 // 根据股票代码判断币种
@@ -72,6 +74,7 @@ export default function AccountsPage() {
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
+  const [currencyRates, setCurrencyRates] = useState<ExchangeRates>(DEFAULT_RATES);
   const [transferData, setTransferData] = useState({
     type: 'between_accounts' as 'between_accounts' | 'from_external' | 'to_external',
     fromAccountId: '',
@@ -84,6 +87,11 @@ export default function AccountsPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [expandedAccounts, setExpandedAccounts] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch exchange rates on mount
+  useEffect(() => {
+    getExchangeRates().then(setCurrencyRates);
+  }, []);
 
   const handleTransfer = () => {
     const { type, fromAccountId, toAccountId, externalAccountName, amount } = transferData;
@@ -216,12 +224,12 @@ export default function AccountsPage() {
     const accountPositions = positions.filter((p) => p.accountId === accountId);
     const account = accounts.find((a) => a.id === accountId);
     const accountCurrency = account?.currency || 'CNY';
-    const accountRate = CURRENCY_RATES[accountCurrency] ?? 1;
+    const accountRate = currencyRates[accountCurrency] ?? 1;
 
     return accountPositions.reduce((sum, p) => {
       // 优先使用持仓自己的币种，否则使用账户币种
       const positionCurrency = p.currency || accountCurrency;
-      const rate = CURRENCY_RATES[positionCurrency] ?? 1;
+      const rate = currencyRates[positionCurrency] ?? 1;
       return sum + p.currentPrice * p.quantity * rate;
     }, 0);
   };
@@ -229,7 +237,7 @@ export default function AccountsPage() {
   const getAccountBalanceCNY = (accountId: string) => {
     const account = accounts.find((a) => a.id === accountId);
     if (!account) return 0;
-    const rate = CURRENCY_RATES[account.currency] ?? 1;
+    const rate = currencyRates[account.currency] ?? 1;
     return account.balance * rate;
   };
 
@@ -241,7 +249,7 @@ export default function AccountsPage() {
     const account = accounts.find((a) => a.id === position.accountId);
     const accountCurrency = account?.currency || 'CNY';
     const positionCurrency = position.currency || accountCurrency;
-    const rate = CURRENCY_RATES[positionCurrency] ?? 1;
+    const rate = currencyRates[positionCurrency] ?? 1;
     return position.currentPrice * position.quantity * rate;
   };
 
@@ -249,7 +257,7 @@ export default function AccountsPage() {
     const account = accounts.find((a) => a.id === position.accountId);
     const accountCurrency = account?.currency || 'CNY';
     const positionCurrency = position.currency || accountCurrency;
-    const rate = CURRENCY_RATES[positionCurrency] ?? 1;
+    const rate = currencyRates[positionCurrency] ?? 1;
     const pnl = (position.currentPrice - position.avgCost) * position.quantity * rate;
     const pnlPercent = position.avgCost > 0 ? ((position.currentPrice - position.avgCost) / position.avgCost) * 100 : 0;
     return { pnl, pnlPercent };

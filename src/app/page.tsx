@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   PieChart,
@@ -18,14 +18,16 @@ import {
 import { useAppStore } from '@/lib/store';
 import type { Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
+import { getExchangeRates, type ExchangeRates } from '@/lib/exchangeRates';
 
-const CURRENCY_RATES: Record<string, number> = {
+// Default rates as fallback (will be replaced by API data)
+const DEFAULT_RATES: ExchangeRates = {
   CNY: 1,
-  USD: 7.2,
   HKD: 0.92,
-  EUR: 7.8,
+  USD: 7.25,
+  EUR: 7.85,
   JPY: 0.048,
-  GBP: 9.1,
+  GBP: 9.15,
 };
 
 // 根据股票代码判断币种
@@ -108,6 +110,12 @@ export default function HomePage() {
   const { accounts, positions, snapshots } = useAppStore();
   const [timeRange, setTimeRange] = useState<TimeRange>('thisYear');
   const [benchmark, setBenchmark] = useState<Benchmark>('none');
+  const [currencyRates, setCurrencyRates] = useState<ExchangeRates>(DEFAULT_RATES);
+
+  // Fetch exchange rates on mount
+  useEffect(() => {
+    getExchangeRates().then(setCurrencyRates);
+  }, []);
 
   const totalStats = useMemo(() => {
     let totalValueCNY = 0;
@@ -116,7 +124,7 @@ export default function HomePage() {
 
     // 计算所有账户余额折算CNY
     accounts.forEach((account) => {
-      const rate = CURRENCY_RATES[account.currency] ?? 1;
+      const rate = currencyRates[account.currency] ?? 1;
       totalCashCNY += account.balance * rate;
     });
 
@@ -127,7 +135,7 @@ export default function HomePage() {
         const account = accounts.find((a) => a.id === p.accountId);
         return account?.currency || 'CNY';
       })();
-      const rate = CURRENCY_RATES[positionCurrency] ?? 1;
+      const rate = currencyRates[positionCurrency] ?? 1;
 
       const valueCNY = p.currentPrice * p.quantity * rate;
       const costCNY = p.avgCost * p.quantity * rate;
@@ -247,7 +255,7 @@ export default function HomePage() {
 
       // 优先使用持仓自己的币种，否则使用账户币种
       const positionCurrency = position.currency || account.currency || 'CNY';
-      const rate = CURRENCY_RATES[positionCurrency] ?? 1;
+      const rate = currencyRates[positionCurrency] ?? 1;
       const value = position.currentPrice * position.quantity * rate;
 
       const existing = allocationMap.get(position.assetType);
@@ -280,13 +288,13 @@ export default function HomePage() {
   const accountSummaries = useMemo(() => {
     return accounts.map((account) => {
       const accountPositions = positions.filter((p) => p.accountId === account.id);
-      const accountRate = CURRENCY_RATES[account.currency] ?? 1;
+      const accountRate = currencyRates[account.currency] ?? 1;
       let investValueCNY = 0;
 
       // 计算账户持仓折算CNY（考虑持仓可能使用不同币种）
       accountPositions.forEach((p) => {
         const positionCurrency = p.currency || account.currency || 'CNY';
-        const rate = CURRENCY_RATES[positionCurrency] ?? 1;
+        const rate = currencyRates[positionCurrency] ?? 1;
         investValueCNY += p.currentPrice * p.quantity * rate;
       });
 

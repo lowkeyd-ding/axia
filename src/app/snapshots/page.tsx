@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   XAxis,
   YAxis,
@@ -12,14 +12,16 @@ import {
 } from 'recharts';
 import { useAppStore } from '@/lib/store';
 import { ASSET_TYPE_CONFIG, type AssetType, type Snapshot, type PositionValue } from '@/types';
+import { getExchangeRates, type ExchangeRates } from '@/lib/exchangeRates';
 
-const CURRENCY_RATES: Record<string, number> = {
+// Default rates as fallback
+const DEFAULT_RATES: ExchangeRates = {
   CNY: 1,
-  USD: 7.2,
   HKD: 0.92,
-  EUR: 7.8,
+  USD: 7.25,
+  EUR: 7.85,
   JPY: 0.048,
-  GBP: 9.1,
+  GBP: 9.15,
 };
 
 interface FormData {
@@ -32,10 +34,16 @@ export default function SnapshotsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedSnapshot, setSelectedSnapshot] = useState<Snapshot | null>(null);
   const [compareSnapshot, setCompareSnapshot] = useState<Snapshot | null>(null);
+  const [currencyRates, setCurrencyRates] = useState<ExchangeRates>(DEFAULT_RATES);
   const [formData, setFormData] = useState<FormData>({
     date: new Date().toISOString().slice(0, 10),
     note: '',
   });
+
+  // Fetch exchange rates on mount
+  useEffect(() => {
+    getExchangeRates().then(setCurrencyRates);
+  }, []);
 
   // Calculate current portfolio value
   const currentStats = useMemo(() => {
@@ -44,13 +52,13 @@ export default function SnapshotsPage() {
     let totalInvestments = 0;
 
     accounts.forEach((account) => {
-      const rate = CURRENCY_RATES[account.currency] ?? 1;
+      const rate = currencyRates[account.currency] ?? 1;
       totalCash += account.balance * rate;
 
       const accountPositions = positions.filter((p) => p.accountId === account.id);
       const investValue = accountPositions.reduce((sum, p) => {
         const positionCurrency = p.currency || account.currency || 'CNY';
-        const posRate = CURRENCY_RATES[positionCurrency] ?? 1;
+        const posRate = currencyRates[positionCurrency] ?? 1;
         return sum + p.currentPrice * p.quantity * posRate;
       }, 0);
       totalInvestments += investValue;
@@ -81,7 +89,7 @@ export default function SnapshotsPage() {
       const account = accounts.find((a) => a.id === position.accountId);
       if (!account) return;
       const positionCurrency = position.currency || account.currency || 'CNY';
-      const rate = CURRENCY_RATES[positionCurrency] ?? 1;
+      const rate = currencyRates[positionCurrency] ?? 1;
       const value = position.currentPrice * position.quantity * rate;
       allocationMap.set(position.assetType, (allocationMap.get(position.assetType) || 0) + value);
     });
@@ -96,11 +104,11 @@ export default function SnapshotsPage() {
 
     // Account values
     const accountValues = accounts.map((account) => {
-      const rate = CURRENCY_RATES[account.currency] ?? 1;
+      const rate = currencyRates[account.currency] ?? 1;
       const accountPositions = positions.filter((p) => p.accountId === account.id);
       const investValue = accountPositions.reduce((sum, p) => {
         const positionCurrency = p.currency || account.currency || 'CNY';
-        const posRate = CURRENCY_RATES[positionCurrency] ?? 1;
+        const posRate = currencyRates[positionCurrency] ?? 1;
         return sum + p.currentPrice * p.quantity * posRate;
       }, 0);
       return {
@@ -117,7 +125,7 @@ export default function SnapshotsPage() {
     const positionValues: PositionValue[] = positions.map((position) => {
       const account = accounts.find((a) => a.id === position.accountId);
       const positionCurrency = position.currency || account?.currency || 'CNY';
-      const rate = CURRENCY_RATES[positionCurrency] ?? 1;
+      const rate = currencyRates[positionCurrency] ?? 1;
       const value = position.currentPrice * position.quantity * rate;
       const costBasis = position.avgCost * position.quantity * rate;
       const pnl = value - costBasis;

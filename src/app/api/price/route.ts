@@ -329,7 +329,77 @@ function getExchange(symbol: string): string {
   if (/^[569]\d{5}$/.test(upper)) return 'SH';
   if (/^\d{5}$/.test(upper)) return 'HK';
   if (/^[A-Z]{1,5}$/.test(upper)) return 'US';
+  // Handle currency pairs like HKDUSD, CNYUSD
+  if (/^[A-Z]{6}$/.test(upper)) return 'FOREX';
   return 'UNKNOWN';
+}
+
+// Default exchange rates (fallback)
+const DEFAULT_RATES: Record<string, number> = {
+  HKD: 0.92,    // HKD to CNY (approximate)
+  USD: 7.25,   // USD to CNY (approximate)
+  EUR: 7.85,   // EUR to CNY (approximate)
+  JPY: 0.048,  // JPY to CNY (approximate)
+  GBP: 9.15,   // GBP to CNY (approximate)
+};
+
+// Fetch exchange rates from multiple sources
+async function fetchExchangeRates(): Promise<Record<string, number>> {
+  const rates = { ...DEFAULT_RATES };
+
+  // Try East Money forex API (most reliable for CNY rates)
+  try {
+    // Fetch USD/CNY, HKD/CNY, EUR/CNY, JPY/CNY, GBP/CNY
+    const symbols = ['USDCNY', 'HKDCNY', 'EURCNY', 'JPYCNY', 'GBPCNY'];
+    const secids = ['106,USDCNH', '106,HKDCNH', '106,EURCNY', '106,JPYCNY', '106,GBPCNY'];
+
+    const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secids.join(',')}&fields=f43,f57,f58`;
+
+    const response = await fetch(url, {
+      headers: { 'Referer': 'https://quote.eastmoney.com', 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(5000)
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const items = data?.data?.diff?.filter(Boolean) || [];
+
+      // USD/CNY (convert from USD/CNH)
+      const usdItem = items.find((item: any) => item.f57 === 'USDCNH');
+      if (usdItem && usdItem.f43) {
+        // USDCNH / 100 = actual rate, but we need USDCNY
+        // Approximate: USDCNY ≈ USDCNH * 1.0 (they're very close)
+        rates['USD'] = usdItem.f43 / 100;
+      }
+
+      // HKD/CNY (convert from HKD/CNH)
+      const hkdItem = items.find((item: any) => item.f57 === 'HKDCNH');
+      if (hkdItem && hkdItem.f43) {
+        // HKDCNH / 100 = actual rate
+        rates['HKD'] = hkdItem.f43 / 100;
+      }
+
+      // EUR/CNY
+      const eurItem = items.find((item: any) => item.f57 === 'EURCNY');
+      if (eurItem && eurItem.f43) {
+        rates['EUR'] = eurItem.f43 / 100;
+      }
+
+      // JPY/CNY (multiply by 100 to get actual rate)
+      const jpyItem = items.find((item: any) => item.f57 === 'JPYCNY');
+      if (jpyItem && jpyItem.f43) {
+        rates['JPY'] = jpyItem.f43 / 10000; // JPY is quoted differently
+      }
+
+      // GBP/CNY
+      const gbpItem = items.find((item: any) => item.f57 === 'GBPCNY');
+      if (gbpItem && gbpItem.f43) {
+        rates['GBP'] = gbpItem.f43 / 100;
+      }
+    }
+  } catch {}
+
+  return rates;
 }
 
 // Check if symbol is a fund

@@ -66,6 +66,15 @@ export default function PositionDetailClient() {
     }).format(value);
   };
 
+  // Format price for display - funds need 4 decimal places
+  const formatPrice = (value: number, assetType: AssetType) => {
+    const decimals = assetType === 'fund' ? 4 : 2;
+    return value.toLocaleString('zh-CN', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+  };
+
   const formatNumber = (value: number, decimals = 2) => {
     return value.toLocaleString('zh-CN', {
       minimumFractionDigits: decimals,
@@ -272,7 +281,7 @@ export default function PositionDetailClient() {
                   {isBank ? '购买净值' : '成本价'}
                 </span>
                 <span className="text-lg font-medium text-zinc-900">
-                  {formatCurrency(position.avgCost, currency)}
+                  {position.assetType === 'fund' ? formatPrice(position.avgCost, position.assetType) : formatCurrency(position.avgCost, currency)}
                 </span>
               </div>
             </div>
@@ -282,7 +291,7 @@ export default function PositionDetailClient() {
                   {isBank ? '当前净值' : '现价'}
                 </span>
                 <span className="text-lg font-medium text-zinc-900">
-                  {formatCurrency(position.currentPrice, currency)}
+                  {position.assetType === 'fund' ? formatPrice(position.currentPrice, position.assetType) : formatCurrency(position.currentPrice, currency)}
                 </span>
               </div>
               <div className="py-2 border-b border-zinc-100">
@@ -324,7 +333,7 @@ export default function PositionDetailClient() {
                         {isBuy ? '买入' : '卖出'}
                       </span>
                       <span className="text-sm text-zinc-600">
-                        {trade.quantity} @ {formatCurrency(trade.price, currency)}
+                        {trade.quantity} @ {position.assetType === 'fund' ? formatPrice(trade.price, position.assetType) : formatCurrency(trade.price, currency)}
                       </span>
                     </div>
                     <div className="text-right">

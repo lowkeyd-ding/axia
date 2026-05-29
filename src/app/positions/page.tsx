@@ -197,6 +197,12 @@ function PositionsPageContent() {
     return value < 0 ? `-${formatted}` : formatted;
   };
 
+  // Format price for display - funds need 4 decimal places
+  const formatPrice = (value: number, assetType: string) => {
+    const decimals = assetType === 'fund' ? 4 : 2;
+    return value.toFixed(decimals);
+  };
+
   const formatPercent = (value: number) => {
     const sign = value >= 0 ? '+' : '';
     return `${sign}${value.toFixed(2)}%`;
@@ -480,7 +486,9 @@ function PositionsPageContent() {
                     <div className="flex items-center gap-3">
                       <div className="text-right">
                         <p className="text-base font-medium text-zinc-900">
-                          {formatCurrency(position.currentPrice, currency)}
+                          {position.assetType === 'fund' 
+                            ? formatPrice(position.currentPrice, position.assetType)
+                            : formatCurrency(position.currentPrice, currency)}
                         </p>
                         <div className={`flex items-center justify-end gap-1.5 text-sm ${pnlColor}`}>
                           <span>{formatCurrency(pnlAmount, currency)}</span>
