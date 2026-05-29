@@ -24,6 +24,30 @@ function getSupabaseConfig() {
   };
 }
 
+// 加载云端数据并更新 store（必须在 persist 配置之前定义）
+async function loadFromCloudData(url: string, anonKey: string, state: any) {
+  console.log('[CloudSync] Attempting to load from cloud...');
+  try {
+    const cloudData = await cloudLoadFromCloud(url, anonKey);
+    if (cloudData) {
+      console.log('[CloudSync] Found cloud data, updating store');
+      useAppStore.setState({
+        accounts: cloudData.accounts || [],
+        positions: cloudData.positions || [],
+        snapshots: cloudData.snapshots || [],
+        trades: cloudData.trades || [],
+        transfers: cloudData.transfers || [],
+        targetAllocations: cloudData.targetAllocations || [],
+        _lastSyncedAt: new Date().toISOString(),
+      });
+    } else {
+      console.log('[CloudSync] No cloud data found, keeping local data');
+    }
+  } catch (error) {
+    console.error('[CloudSync] Error loading from cloud:', error);
+  }
+}
+
 // Round to 4 decimal places to avoid floating point errors
 function roundQuantity(value: number): number {
   return Math.round(value * 10000) / 10000;
@@ -847,30 +871,6 @@ export const useAppStore = create<AppState>()(
     }
   )
 );
-
-// 加载云端数据并更新 store
-async function loadFromCloudData(url: string, anonKey: string, state: any) {
-  console.log('[CloudSync] Attempting to load from cloud...');
-  try {
-    const cloudData = await cloudLoadFromCloud(url, anonKey);
-    if (cloudData) {
-      console.log('[CloudSync] Found cloud data, updating store');
-      useAppStore.setState({
-        accounts: cloudData.accounts || [],
-        positions: cloudData.positions || [],
-        snapshots: cloudData.snapshots || [],
-        trades: cloudData.trades || [],
-        transfers: cloudData.transfers || [],
-        targetAllocations: cloudData.targetAllocations || [],
-        _lastSyncedAt: new Date().toISOString(),
-      });
-    } else {
-      console.log('[CloudSync] No cloud data found, keeping local data');
-    }
-  } catch (error) {
-    console.error('[CloudSync] Error loading from cloud:', error);
-  }
-}
 
 // 延迟加载云端数据（避免 SSR 问题）
 let cloudInitPromise: Promise<void> | null = null;
