@@ -1,17 +1,18 @@
 /**
  * Exchange Rates API Route
  * Fetches real-time exchange rates from East Money
+ * API: https://push2.eastmoney.com/api/qt/ulist.np/get
  */
 
 import { NextResponse } from 'next/server';
 
-// Default exchange rates (fallback)
+// Default exchange rates (fallback - more accurate values)
 const DEFAULT_RATES: Record<string, number> = {
-  HKD: 0.92,    // HKD to CNY (approximate)
-  USD: 7.25,    // USD to CNY (approximate)
-  EUR: 7.85,    // EUR to CNY (approximate)
-  JPY: 0.048,   // JPY to CNY (approximate)
-  GBP: 9.15,    // GBP to CNY (approximate)
+  HKD: 0.8637,  // HKD to CNY (user confirmed: ~0.8637)
+  USD: 7.24,     // USD to CNY
+  EUR: 7.85,     // EUR to CNY
+  JPY: 0.048,    // JPY to CNY
+  GBP: 9.15,     // GBP to CNY
 };
 
 interface ExchangeRate {
@@ -21,58 +22,83 @@ interface ExchangeRate {
   updateTime: string;
 }
 
+/**
+ * Fetch exchange rates from East Money
+ * Uses push2.eastmoney.com API for forex data
+ * 
+ * Note: East Money forex API returns rates in format where:
+ * - f43 = current price (外汇买入价/卖出价中间价)
+ * - The actual rate may need scaling
+ */
 async function fetchExchangeRates(): Promise<ExchangeRate[]> {
   const rates: ExchangeRate[] = [];
 
-  try {
-    // East Money forex API - get rates for multiple currencies vs CNY/CNH
-    // secid format: market.code (106 = forex)
-    const secids = [
-      { code: 'USDCNY', secid: '106,USDCNY', name: '美元/人民币' },
-      { code: 'HKDCNY', secid: '106,HKDCNY', name: '港币/人民币' },
-      { code: 'EURCNY', secid: '106,EURCNY', name: '欧元/人民币' },
-      { code: 'JPYCNY', secid: '106,JPYCNY', name: '日元/人民币' },
-      { code: 'GBPCNY', secid: '106,GBPCNY', name: '英镑/人民币' },
-    ];
+  // East Money forex secids - 106 = forex market
+  const forexPairs = [
+    { code: 'USDCNY', name: '美元/人民币', secid: '106,USDCNY' },
+    { code: 'HKDCNY', name: '港币/人民币', secid: '106,HKDCNY' },
+    { code: 'EURCNY', name: '欧元/人民币', secid: '106,EURCNY' },
+    { code: 'JPYCNY', name: '日元/人民币', secid: '106,JPYCNY' },
+    { code: 'GBPCNY', name: '英镑/人民币', secid: '106,GBPCNY' },
+  ];
 
-    const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secids.map(s => s.secid).join(',')}&fields=f43,f44,f45,f57,f58,f59,f60,f107`;
+  try {
+    // Build secid list: market,code pairs
+    const secids = forexPairs.map(p => p.secid).join(',');
+    // Fields: f43=最新价, f57=代码, f58=名称, f60=昨收, f107=涨跌额, f169=涨跌幅
+    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&secids=${secids}&fields=f2,f3,f4,f6,f7,f8,f12,f14`;
 
     const response = await fetch(url, {
-      headers: { 
-        'Referer': 'https://quote.eastmoney.com', 
-        'User-Agent': 'Mozilla/5.0' 
+      headers: {
+        'Referer': 'https://quote.eastmoney.com',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       },
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(8000)
     });
 
-    if (response.ok) {
+    if (!response.ok) {
+      console.error('Exchange rate API returned:', response.status);
+    } else {
       const data = await response.json();
+      
+      // Parse the response - East Money ulist API format
+      if (data?.data?.diff && Array.isArray(data.data.diff)) {
+        for (const item of data.data.diff) {
+          if (!item || !item.f12) continue;
+          
+          const code = item.f12; // e.g., "USDCNY"
+          const price = item.f2; // f2 = 最新价 in ulist API
+          
+          // Find the pair info
+          const pair = forexPairs.find(p => p.code === code);
+          if (!pair || !price || price === 0) continue;
 
-      // East Money returns data in a different format for multiple stocks
-      // Each item has f57 = code, f43 = current price
-      for (const { code, name } of secids) {
-        // Try to find the rate in the data
-        // The data might be in data.diff or data[0], data[1], etc.
-        let price = 0;
-
-        if (data?.data?.diff) {
-          // Some API versions return diff as array
-          const item = data.data.diff.find((d: any) => d?.f57 === code);
-          if (item) price = item.f43;
-        } else if (data?.data) {
-          // Or as individual properties
-          const item = data.data[code];
-          if (item?.f43) price = item.f43;
-        }
-
-        // If found, divide by 100 to get actual rate
-        if (price > 0) {
+          // f2 is the actual exchange rate (no division needed)
+          // For HKD/CNY around 0.86, this should be the direct value
           rates.push({
             code,
-            name,
-            rate: price / 100,
+            name: pair.name,
+            rate: price,
             updateTime: new Date().toISOString(),
           });
+        }
+      }
+      
+      // Fallback: try data array format
+      else if (data?.data && Array.isArray(data.data)) {
+        for (const item of data.data) {
+          if (!item || !item.f12) continue;
+          const code = item.f12;
+          const price = item.f2;
+          const pair = forexPairs.find(p => p.code === code);
+          if (pair && price && price > 0) {
+            rates.push({
+              code,
+              name: pair.name,
+              rate: price,
+              updateTime: new Date().toISOString(),
+            });
+          }
         }
       }
     }
@@ -82,8 +108,9 @@ async function fetchExchangeRates(): Promise<ExchangeRate[]> {
 
   // If we couldn't fetch any rates, return defaults
   if (rates.length === 0) {
+    console.warn('Using default exchange rates');
     return Object.entries(DEFAULT_RATES).map(([code, rate]) => ({
-      code,
+      code: code + 'CNY',
       name: getCurrencyName(code),
       rate,
       updateTime: new Date().toISOString(),
@@ -108,6 +135,7 @@ export async function GET() {
   const rates = await fetchExchangeRates();
 
   // Convert to a simple key-value map for easy consumption
+  // Key: currency code (HKD, USD, etc.), Value: 1 unit = X CNY
   const rateMap: Record<string, number> = {};
   for (const r of rates) {
     // Extract currency code (e.g., "USD" from "USDCNY")
@@ -116,7 +144,7 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    success: true,
+    success: rates.length > 0,
     rates,
     rateMap,
     timestamp: new Date().toISOString(),

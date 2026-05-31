@@ -14,8 +14,8 @@ export interface ExchangeRates {
 
 // Default rates as fallback
 const DEFAULT_RATES: ExchangeRates = {
-  HKD: 0.92,
-  USD: 7.25,
+  HKD: 0.8637,  // HKD to CNY (user confirmed)
+  USD: 7.24,
   EUR: 7.85,
   JPY: 0.048,
   GBP: 9.15,
