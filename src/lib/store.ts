@@ -31,9 +31,6 @@ async function loadFromCloudData(state: any) {
       return;
     }
     const cloudData = await cloudLoadFromCloud(config.url, config.anonKey);
-  console.log('[CloudSync] Attempting to load from cloud...');
-  try {
-    const cloudData = await cloudLoadFromCloud(url, anonKey);
     if (cloudData) {
       console.log('[CloudSync] Found cloud data, updating store');
       useAppStore.setState({

@@ -43,9 +43,10 @@ export async function getExchangeRates(): Promise<ExchangeRates> {
     if (response.ok) {
       const data = await response.json();
       if (data.rateMap) {
-        cachedRates = { ...DEFAULT_RATES, ...data.rateMap };
+        const newRates = { ...DEFAULT_RATES, ...data.rateMap };
+        cachedRates = newRates;
         cacheTimestamp = now;
-        return cachedRates;
+        return newRates;
       }
     }
   } catch (error) {
