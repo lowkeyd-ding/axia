@@ -243,6 +243,12 @@ export default function AccountsPage() {
     return account.balance * rate;
   };
 
+  const getAccountBalanceNative = (accountId: string) => {
+    const account = accounts.find((a) => a.id === accountId);
+    if (!account) return 0;
+    return account.balance;
+  };
+
   const getAccountPositions = (accountId: string) => {
     return positions.filter((p) => p.accountId === accountId);
   };
@@ -253,6 +259,10 @@ export default function AccountsPage() {
     const positionCurrency = position.currency || accountCurrency;
     const rate = currencyRates[positionCurrency] ?? 1;
     return position.currentPrice * position.quantity * rate;
+  };
+
+  const getPositionValueNative = (position: { currency?: string; currentPrice: number; quantity: number; accountId: string }) => {
+    return position.currentPrice * position.quantity;
   };
 
   const getPositionPnL = (position: { currency?: string; currentPrice: number; avgCost: number; quantity: number; accountId: string }) => {
@@ -289,6 +299,20 @@ export default function AccountsPage() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value);
+  };
+
+  const formatHKD = (value: number) => {
+    return new Intl.NumberFormat('zh-CN', {
+      style: 'currency',
+      currency: 'HKD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  };
+
+  const formatByCurrency = (value: number, currency: string) => {
+    if (currency === 'HKD') return formatHKD(value);
+    return formatCNY(value);
   };
 
   // Data export handler - exports to Excel with multiple sheets
@@ -634,10 +658,16 @@ export default function AccountsPage() {
             {accounts.map((account) => {
               const value = getAccountValue(account.id);
               const balanceCNY = getAccountBalanceCNY(account.id);
+              const balanceNative = getAccountBalanceNative(account.id);
+              // 持仓按账户原币种计算
+              const valueNative = getAccountPositions(account.id).reduce(
+                (sum, p) => sum + getPositionValueNative(p), 0
+              );
               const typeColor = ACCOUNT_TYPE_COLORS[account.type];
               const typeLabel = ACCOUNT_TYPE_LABELS[account.type];
               // 总资产 = 持仓市值折CNY + 余额折CNY
               const totalAssets = value + balanceCNY;
+              const totalAssetsNative = valueNative + balanceNative;
               const accountPositions = getAccountPositions(account.id);
               const isExpanded = expandedAccounts.has(account.id);
 
@@ -720,18 +750,15 @@ export default function AccountsPage() {
                     <div className="flex items-center gap-4">
                       <div className="text-right">
                         <p className="text-lg font-semibold text-zinc-900">
-                          {formatCNY(totalAssets)}
+                          {formatByCurrency(totalAssetsNative, account.currency)}
                         </p>
                         <div className="flex items-center justify-end gap-2 text-xs">
                           <span className="text-zinc-400">
-                            持仓: {formatCNY(value)}
+                            持仓: {formatByCurrency(valueNative, account.currency)}
                           </span>
                           <span className="text-zinc-300">|</span>
                           <span className="text-blue-500/80">
-                            余额: {formatCNY(balanceCNY)}
-                            {account.currency === 'HKD' && (
-                              <span className="text-zinc-500 ml-1">(HK${account.balance.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
-                            )}
+                            余额: {formatByCurrency(balanceNative, account.currency)}
                           </span>
                         </div>
                       </div>
