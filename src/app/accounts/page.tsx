@@ -729,6 +729,9 @@ export default function AccountsPage() {
                           <span className="text-zinc-300">|</span>
                           <span className="text-blue-500/80">
                             余额: {formatCNY(balanceCNY)}
+                            {account.currency === 'HKD' && (
+                              <span className="text-zinc-500 ml-1">(HK${account.balance.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
+                            )}
                           </span>
                         </div>
                       </div>
