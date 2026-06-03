@@ -537,6 +537,13 @@ export default function AccountsPage() {
     return sum + value * rate;
   }, 0);
 
+  const hkdTotal = accounts
+    .filter((acc) => acc.currency === 'HKD')
+    .reduce((sum, acc) => {
+      const value = getAccountValue(acc.id);
+      return sum + value;
+    }, 0);
+
   return (
     <div className="flex flex-col min-h-screen bg-zinc-50 text-zinc-900">
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-zinc-200 shadow-sm">
@@ -548,6 +555,11 @@ export default function AccountsPage() {
                 <p className="mt-1 text-sm text-zinc-500">
                   共 {accounts.length} 个账户，持仓总市值（CNY）{' '}
                   <span className="text-blue-600 font-medium">{formatCNY(totalValueCNY)}</span>
+                  {hkdTotal > 0 && (
+                    <span className="ml-2">
+                      ，港币汇总 <span className="text-emerald-600 font-medium">HK${hkdTotal.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </span>
+                  )}
                 </p>
               )}
             </div>
