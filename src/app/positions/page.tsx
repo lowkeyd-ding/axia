@@ -135,7 +135,9 @@ function PositionsPageContent() {
       const symbols = [...new Set(tradeablePositions.map((p) => p.symbol))];
       const result = await refreshPrices(symbols);
 
-      if (result.success && result.prices) {
+      // Update prices for any successfully fetched symbols
+      // Even if some symbols failed, update the ones that succeeded
+      if (result.prices && result.prices.length > 0) {
         result.prices.forEach((priceData) => {
           const position = positions.find((p) => p.symbol === priceData.symbol);
           if (position) {
@@ -144,11 +146,11 @@ function PositionsPageContent() {
           }
         });
         setLastRefresh(new Date());
-        // Count positions that couldn't be updated
-        failedCount = symbols.length - successCount;
-      } else {
-        failedCount = symbols.length;
       }
+
+      // Count failed symbols (those in the request but not in results)
+      const successfulSymbols = new Set(result.prices?.map(p => p.symbol) || []);
+      failedCount = symbols.filter(s => !successfulSymbols.has(s)).length;
     } catch {
       failedCount = positions.filter(
         (p) => p.assetType !== 'bank_wealth_management' && p.assetType !== 'bank_cash'

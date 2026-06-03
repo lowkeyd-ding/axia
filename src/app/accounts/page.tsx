@@ -56,6 +56,7 @@ interface FormData {
   currency: string;
   holder: string;
   balance: string;
+  accountId?: string; // For editing existing accounts
 }
 
 const initialFormData: FormData = {
@@ -68,7 +69,8 @@ const initialFormData: FormData = {
 };
 
 export default function AccountsPage() {
-  const { accounts, positions, addAccount, deleteAccount, addTransfer, transfers, exportData, importData } = useAppStore();
+  const { accounts, positions, addAccount, updateAccount, deleteAccount, addTransfer, transfers, exportData, importData } = useAppStore();
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -496,14 +498,26 @@ export default function AccountsPage() {
   const handleSubmit = () => {
     if (!validateForm()) return;
 
-    addAccount({
-      name: formData.name.trim(),
-      type: formData.type,
-      institution: formData.institution.trim(),
-      currency: formData.currency,
-      holder: formData.holder.trim(),
-      balance: parseFloat(formData.balance) || 0,
-    });
+    if (editingAccountId) {
+      updateAccount(editingAccountId, {
+        name: formData.name.trim(),
+        type: formData.type,
+        institution: formData.institution.trim(),
+        currency: formData.currency,
+        holder: formData.holder.trim(),
+        balance: parseFloat(formData.balance) || 0,
+      });
+      setEditingAccountId(null);
+    } else {
+      addAccount({
+        name: formData.name.trim(),
+        type: formData.type,
+        institution: formData.institution.trim(),
+        currency: formData.currency,
+        holder: formData.holder.trim(),
+        balance: parseFloat(formData.balance) || 0,
+      });
+    }
 
     setFormData(initialFormData);
     setErrors({});
@@ -513,18 +527,14 @@ export default function AccountsPage() {
   const handleClose = () => {
     setFormData(initialFormData);
     setErrors({});
+    setEditingAccountId(null);
     setIsModalOpen(false);
   };
 
   const totalValueCNY = accounts.reduce((sum, acc) => {
     const value = getAccountValue(acc.id);
-    if (acc.currency === 'CNY') return sum + value;
-    if (acc.currency === 'USD') return sum + value * 7.2;
-    if (acc.currency === 'HKD') return sum + value * 0.92;
-    if (acc.currency === 'EUR') return sum + value * 7.8;
-    if (acc.currency === 'JPY') return sum + value * 0.048;
-    if (acc.currency === 'GBP') return sum + value * 9.1;
-    return sum + value;
+    const rate = currencyRates[acc.currency] ?? 1;
+    return sum + value * rate;
   }, 0);
 
   return (
@@ -698,15 +708,15 @@ export default function AccountsPage() {
                     <div className="flex items-center gap-4">
                       <div className="text-right">
                         <p className="text-lg font-semibold text-zinc-900">
-                          {formatCurrency(totalAssets, account.currency)}
+                          {formatCNY(totalAssets)}
                         </p>
                         <div className="flex items-center justify-end gap-2 text-xs">
                           <span className="text-zinc-400">
-                            持仓: {formatCurrency(value, account.currency)}
+                            持仓: {formatCNY(value)}
                           </span>
                           <span className="text-zinc-300">|</span>
                           <span className="text-blue-500/80">
-                            余额: {formatCurrency(account.balance, account.currency)}
+                            余额: {formatCNY(balanceCNY)}
                           </span>
                         </div>
                       </div>
@@ -719,6 +729,28 @@ export default function AccountsPage() {
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </svg>
+                      {/* Edit button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingAccountId(account.id);
+                          setFormData({
+                            name: account.name,
+                            type: account.type,
+                            currency: account.currency,
+                            balance: account.balance.toString(),
+                            institution: account.institution || '',
+                            holder: account.holder || '',
+                          });
+                          setIsModalOpen(true);
+                        }}
+                        className="p-1.5 text-zinc-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="编辑账户"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
                       {/* Delete button */}
                       <button
                         onClick={(e) => {
@@ -800,7 +832,7 @@ export default function AccountsPage() {
         >
           <div className="w-full max-w-md bg-white border border-zinc-200 rounded-2xl shadow-2xl">
             <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200">
-              <h2 className="text-lg font-semibold text-zinc-900">添加账户</h2>
+              <h2 className="text-lg font-semibold text-zinc-900">{editingAccountId ? '编辑账户' : '添加账户'}</h2>
               <button
                 onClick={handleClose}
                 className="w-8 h-8 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
@@ -935,7 +967,7 @@ export default function AccountsPage() {
                 onClick={handleSubmit}
                 className="flex-1 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors"
               >
-                添加
+                {editingAccountId ? '保存' : '添加'}
               </button>
             </div>
           </div>

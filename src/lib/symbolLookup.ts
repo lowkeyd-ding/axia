@@ -133,6 +133,7 @@ const STOCK_DATA: SymbolInfo[] = [
   { symbol: '09888', name: '百度集团-SW', assetType: 'stock', exchange: 'HK' },
   { symbol: '09987', name: '百胜中国', assetType: 'stock', exchange: 'HK' },
   { symbol: '09988', name: '阿里巴巴-SW', assetType: 'stock', exchange: 'HK' },
+  { symbol: '09992', name: '泡泡玛特', assetType: 'stock', exchange: 'HK' },
   { symbol: '09999', name: '网易-S', assetType: 'stock', exchange: 'HK' },
   { symbol: '10288', name: '金蝶国际', assetType: 'stock', exchange: 'HK' },
   { symbol: '11692', name: '农夫山泉', assetType: 'stock', exchange: 'HK' },
