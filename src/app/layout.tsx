@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import NavBar from "./NavBar";
+import { AuthProvider } from "@/components/AuthProvider";
 import { CloudSyncInitializer } from "./CloudSyncInitializer";
 
 const geistSans = Geist({
@@ -30,9 +31,11 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <CloudSyncInitializer />
-        <NavBar />
-        {children}
+        <AuthProvider>
+          <CloudSyncInitializer />
+          <NavBar />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );
