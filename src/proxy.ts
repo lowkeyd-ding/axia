@@ -19,15 +19,31 @@ function isAuthPage(pathname: string): boolean {
   return AUTH_PAGES.has(pathname);
 }
 
+/**
+ * 带超时控制的 fetch，用于 edge runtime 中防止 Supabase edge call 卡死导致无限重定向。
+ */
+async function fetchWithTimeout(
+  input: RequestInfo,
+  init?: RequestInit & { timeoutMs?: number }
+): Promise<Response> {
+  const { timeoutMs = 3000, ...fetchInit } = init ?? {};
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...fetchInit, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 环境变量缺失时直接放行，避免无限重定向
+  // 环境变量缺失时直接放行
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     return NextResponse.next({ request });
   }
 
-  // 构建初始响应，并在每个 cookie set 后克隆以保留它们
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -45,17 +61,44 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getUser() 会调 Supabase edge endpoint，wrap with timeout + try-catch
+  // 任何异常/超时不阻断放行，避免 edge runtime 异常时产生无限重定向
+  let user = null;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
 
-  // 已登录 → 禁止再去登录/注册/忘记密码页
+    // Monkey-patch supabase fetch 以支持超时
+    const originalFetch = globalThis.fetch;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).__supabaseOriginalFetch = originalFetch;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = (input: any, init?: any) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any).fetch = originalFetch;
+      return fetchWithTimeout(input, { ...init, timeoutMs: 3000 });
+    };
+
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+
+    clearTimeout(timer);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).fetch = originalFetch;
+  } catch {
+    // edge runtime 异常（超时 / fetch 失败 / Supabase edge redirect 等）→ 静默放行
+  }
+
+  // 已登录 → 禁止再去登录/注册页
   if (user && isAuthPage(pathname)) {
     return NextResponse.redirect(new URL('/', request.url));
   }
 
-  // 未登录 → 受保护路径全部跳登录（首页 `/` 允许直接查看概览）
-  const isProtected = pathname !== '/' && !isAuthPage(pathname) && !pathname.startsWith('/auth/callback');
+  // 未登录 → 受保护路径跳登录（首页 `/` 允许直接查看概览）
+  const isProtected =
+    pathname !== '/' &&
+    !isAuthPage(pathname) &&
+    !pathname.startsWith('/auth/callback');
 
   if (!user && isProtected) {
     const url = new URL('/auth/login', request.url);
