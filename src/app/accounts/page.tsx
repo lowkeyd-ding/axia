@@ -4,7 +4,9 @@ import { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { Account } from '@/types';
 import * as XLSX from 'xlsx';
-import { getExchangeRates, type ExchangeRates } from '@/lib/exchangeRates';
+import { getExchangeRates } from '@/lib/exchangeRates';
+import { DEFAULT_EXCHANGE_RATES, type ExchangeRates } from '@/config/exchangeRates';
+import { formatCurrency } from '@/utils/format';
 
 const ACCOUNT_TYPES = [
   { value: 'bank', label: '银行' },
@@ -27,16 +29,6 @@ const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
   securities: '证券',
   fund: '基金',
   other: '其他',
-};
-
-// Default rates as fallback
-const DEFAULT_RATES: ExchangeRates = {
-  CNY: 1,
-  HKD: 0.92,
-  USD: 7.25,
-  EUR: 7.85,
-  JPY: 0.048,
-  GBP: 9.15,
 };
 
 // 根据股票代码判断币种
@@ -76,7 +68,7 @@ export default function AccountsPage() {
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
-  const [currencyRates, setCurrencyRates] = useState<ExchangeRates>(DEFAULT_RATES);
+  const [currencyRates, setCurrencyRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
   const [transferData, setTransferData] = useState({
     type: 'between_accounts' as 'between_accounts' | 'from_external' | 'to_external',
     fromAccountId: '',
@@ -283,36 +275,8 @@ export default function AccountsPage() {
     }
   }, [toast]);
 
-  const formatCurrency = (value: number, currency: string) => {
-    return new Intl.NumberFormat('zh-CN', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
-
-  const formatCNY = (value: number) => {
-    return new Intl.NumberFormat('zh-CN', {
-      style: 'currency',
-      currency: 'CNY',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
-
-  const formatHKD = (value: number) => {
-    return new Intl.NumberFormat('zh-CN', {
-      style: 'currency',
-      currency: 'HKD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
-
   const formatByCurrency = (value: number, currency: string) => {
-    if (currency === 'HKD') return formatHKD(value);
-    return formatCNY(value);
+    return formatCurrency(value, currency);
   };
 
   // Data export handler - exports to Excel with multiple sheets
@@ -442,14 +406,16 @@ export default function AccountsPage() {
           const wb = XLSX.read(data, { type: 'array' });
 
           // 读取各工作表数据
-          let importedAccounts: any[] = [];
-          let importedPositions: any[] = [];
-          let importedTrades: any[] = [];
-          let importedTransfers: any[] = [];
+          // Excel 中每行数据是一个通用对象，结构取决于表头
+          // 使用 unknown[] 然后在赋值时转换类型
+          let importedAccounts: Record<string, unknown>[] = [];
+          let importedPositions: Record<string, unknown>[] = [];
+          let importedTrades: Record<string, unknown>[] = [];
+          let importedTransfers: Record<string, unknown>[] = [];
 
           wb.SheetNames.forEach(sheetName => {
             const ws = wb.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json(ws);
+            const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws);
 
             if (sheetName === '账户') {
               importedAccounts = jsonData;
@@ -578,7 +544,7 @@ export default function AccountsPage() {
               {accounts.length > 0 && (
                 <p className="mt-1 text-sm text-zinc-500">
                   共 {accounts.length} 个账户，持仓总市值（CNY）{' '}
-                  <span className="text-blue-600 font-medium">{formatCNY(totalValueCNY)}</span>
+                  <span className="text-blue-600 font-medium">{formatCurrency(totalValueCNY, 'CNY')}</span>
                   {hkdTotal > 0 && (
                     <span className="ml-2">
                       ，港币汇总 <span className="text-emerald-600 font-medium">HK${hkdTotal.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>

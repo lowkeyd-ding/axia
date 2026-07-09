@@ -12,17 +12,9 @@ import {
 } from 'recharts';
 import { useAppStore } from '@/lib/store';
 import { ASSET_TYPE_CONFIG, type AssetType, type Snapshot, type PositionValue } from '@/types';
-import { getExchangeRates, type ExchangeRates } from '@/lib/exchangeRates';
-
-// Default rates as fallback
-const DEFAULT_RATES: ExchangeRates = {
-  CNY: 1,
-  HKD: 0.92,
-  USD: 7.25,
-  EUR: 7.85,
-  JPY: 0.048,
-  GBP: 9.15,
-};
+import { getExchangeRates } from '@/lib/exchangeRates';
+import { DEFAULT_EXCHANGE_RATES, type ExchangeRates } from '@/config/exchangeRates';
+import { formatCurrency, formatPercent } from '@/utils/format';
 
 interface FormData {
   date: string;
@@ -34,7 +26,7 @@ export default function SnapshotsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedSnapshot, setSelectedSnapshot] = useState<Snapshot | null>(null);
   const [compareSnapshot, setCompareSnapshot] = useState<Snapshot | null>(null);
-  const [currencyRates, setCurrencyRates] = useState<ExchangeRates>(DEFAULT_RATES);
+  const [currencyRates, setCurrencyRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
   const [formData, setFormData] = useState<FormData>({
     date: new Date().toISOString().slice(0, 10),
     note: '',
@@ -186,20 +178,6 @@ export default function SnapshotsPage() {
 
     setFormData({ date: new Date().toISOString().slice(0, 10), note: '' });
     setIsModalOpen(false);
-  };
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('zh-CN', {
-      style: 'currency',
-      currency: 'CNY',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(Math.abs(value));
-  };
-
-  const formatPercent = (value: number) => {
-    const sign = value >= 0 ? '+' : '';
-    return `${sign}${value.toFixed(2)}%`;
   };
 
   const getComparison = (snapshot: Snapshot) => {

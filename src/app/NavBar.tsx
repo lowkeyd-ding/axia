@@ -1,30 +1,17 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useState, useRef, useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useRef, useEffect, useState } from 'react';
+import { useAuth } from '@/components/AuthProvider';
 import { createClient } from '@/lib/supabase/client';
 
 export default function NavBar() {
   const pathname = usePathname();
-  const [user, setUser] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter();
+  const { user, isLoading, signOut } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user);
-      setIsLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -37,10 +24,10 @@ export default function NavBar() {
   }, []);
 
   const handleSignOut = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
     setDropdownOpen(false);
-    window.location.href = '/auth/login';
+    await signOut();
+    router.push('/auth/login');
+    router.refresh();
   };
 
   const NAV_ITEMS = [

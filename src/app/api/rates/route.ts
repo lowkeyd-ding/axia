@@ -5,14 +5,15 @@
  */
 
 import { NextResponse } from 'next/server';
+import { DEFAULT_EXCHANGE_RATES, type ExchangeRates } from '@/config/exchangeRates';
 
-// Default exchange rates (fallback - more accurate values)
+// 从统一配置中构建默认值
 const DEFAULT_RATES: Record<string, number> = {
-  HKD: 0.8637,  // HKD to CNY (user confirmed: ~0.8637)
-  USD: 7.24,     // USD to CNY
-  EUR: 7.85,     // EUR to CNY
-  JPY: 0.048,    // JPY to CNY
-  GBP: 9.15,     // GBP to CNY
+  HKD: DEFAULT_EXCHANGE_RATES.HKD,
+  USD: DEFAULT_EXCHANGE_RATES.USD,
+  EUR: DEFAULT_EXCHANGE_RATES.EUR,
+  JPY: DEFAULT_EXCHANGE_RATES.JPY,
+  GBP: DEFAULT_EXCHANGE_RATES.GBP,
 };
 
 interface ExchangeRate {

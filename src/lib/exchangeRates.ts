@@ -3,23 +3,7 @@
  * Fetches and caches exchange rates from the server-side API
  */
 
-export interface ExchangeRates {
-  HKD: number;
-  USD: number;
-  EUR: number;
-  JPY: number;
-  GBP: number;
-  [key: string]: number; // Allow string indexing
-}
-
-// Default rates as fallback
-const DEFAULT_RATES: ExchangeRates = {
-  HKD: 0.8637,  // HKD to CNY (user confirmed)
-  USD: 7.24,
-  EUR: 7.85,
-  JPY: 0.048,
-  GBP: 9.15,
-};
+import { DEFAULT_EXCHANGE_RATES, type ExchangeRates } from '@/config/exchangeRates';
 
 // Cache for exchange rates
 let cachedRates: ExchangeRates | null = null;
@@ -43,7 +27,7 @@ export async function getExchangeRates(): Promise<ExchangeRates> {
     if (response.ok) {
       const data = await response.json();
       if (data.rateMap) {
-        const newRates = { ...DEFAULT_RATES, ...data.rateMap };
+        const newRates = { ...DEFAULT_EXCHANGE_RATES, ...data.rateMap };
         cachedRates = newRates;
         cacheTimestamp = now;
         return newRates;
@@ -54,7 +38,7 @@ export async function getExchangeRates(): Promise<ExchangeRates> {
   }
 
   // Return default rates if fetch fails
-  return DEFAULT_RATES;
+  return DEFAULT_EXCHANGE_RATES;
 }
 
 /**

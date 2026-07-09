@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { Account, Position, Snapshot, Trade, Transfer, TargetAllocation } from '@/types';
 
-// Supabase 客户端缓存
 let supabaseClient: SupabaseClient | null = null;
 
 export function getSupabaseClient(url: string, anonKey: string) {
@@ -10,7 +10,6 @@ export function getSupabaseClient(url: string, anonKey: string) {
   return supabaseClient;
 }
 
-// 获取 Supabase 配置（从服务端 API 获取，确保环境变量被正确注入）
 export async function getSupabaseConfig(): Promise<{ url: string; anonKey: string } | null> {
   try {
     const response = await fetch('/api/config');
@@ -32,16 +31,17 @@ export async function getSupabaseConfig(): Promise<{ url: string; anonKey: strin
 
 const DATA_KEY = 'axia_data';
 
-// 同步数据到云端
+export interface CloudSyncData {
+  accounts: Account[];
+  positions: Position[];
+  snapshots: Snapshot[];
+  trades: Trade[];
+  transfers: Transfer[];
+  targetAllocations: TargetAllocation[];
+}
+
 export async function syncToCloud(
-  data: {
-    accounts: any[];
-    positions: any[];
-    snapshots: any[];
-    trades: any[];
-    transfers: any[];
-    targetAllocations: any[];
-  },
+  data: CloudSyncData,
   url: string,
   anonKey: string
 ): Promise<boolean> {
@@ -52,7 +52,7 @@ export async function syncToCloud(
       data: data,
       updated_at: new Date().toISOString(),
     };
-    
+
     const { error } = await client.from('axia_data').upsert(record);
 
     if (error) {
@@ -67,18 +67,10 @@ export async function syncToCloud(
   }
 }
 
-// 从云端加载数据
 export async function loadFromCloud(
   url: string,
   anonKey: string
-): Promise<{
-  accounts: any[];
-  positions: any[];
-  snapshots: any[];
-  trades: any[];
-  transfers: any[];
-  targetAllocations: any[];
-} | null> {
+): Promise<CloudSyncData | null> {
   try {
     const client = getSupabaseClient(url, anonKey);
     const { data, error } = await client
@@ -92,7 +84,7 @@ export async function loadFromCloud(
       return null;
     }
     console.log('[CloudSync] Data loaded from cloud:', data.data);
-    return data.data;
+    return data.data as CloudSyncData;
   } catch (error) {
     console.error('Failed to load from cloud:', error);
     return null;

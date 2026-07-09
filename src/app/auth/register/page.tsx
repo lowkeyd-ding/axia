@@ -19,6 +19,11 @@ export default function RegisterPage() {
     e.preventDefault();
     setError(null);
 
+    if (!email.trim() || !password) {
+      setError('请输入邮箱和密码');
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError('两次输入的密码不一致');
       return;
@@ -31,8 +36,8 @@ export default function RegisterPage() {
 
     setLoading(true);
 
-    const { error } = await supabase.auth.signUp({
-      email,
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
       password,
       options: {
         emailRedirectTo: `${window.location.origin}/auth/callback`,
@@ -42,10 +47,17 @@ export default function RegisterPage() {
     if (error) {
       setError(error.message);
       setLoading(false);
-    } else {
-      alert('注册成功！请查收验证邮件完成激活。');
-      router.push('/auth/login');
+      return;
     }
+
+    // Supabase 配置项"Confirm email"关闭时，注册后立即建立 session
+    if (data?.session) {
+      window.location.href = '/';
+      return;
+    }
+
+    alert('注册成功！请查收验证邮件完成激活。');
+    router.push('/auth/login');
   };
 
   return (

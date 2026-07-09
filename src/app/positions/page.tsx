@@ -8,6 +8,8 @@ import { refreshPrices, getPrice } from '@/lib/priceApi';
 import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
 import type { Position, Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
+import { formatCurrency, formatPercent } from '@/utils/format';
+import { DEFAULT_PRICE_COLORS } from '@/config/colors';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
   bank: '银行',
@@ -189,25 +191,17 @@ function PositionsPageContent() {
     }
   };
 
-  const formatCurrency = (value: number, currency = 'CNY') => {
-    const formatted = new Intl.NumberFormat('zh-CN', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(Math.abs(value));
-    return value < 0 ? `-${formatted}` : formatted;
-  };
-
   // Format price for display - funds need 4 decimal places
   const formatPrice = (value: number, assetType: string) => {
     const decimals = assetType === 'fund' ? 4 : 2;
     return value.toFixed(decimals);
   };
 
-  const formatPercent = (value: number) => {
-    const sign = value >= 0 ? '+' : '';
-    return `${sign}${value.toFixed(2)}%`;
+  // 盈亏颜色 (A股红涨绿跌)
+  const getPnLColor = (value: number) => {
+    if (value > 0) return DEFAULT_PRICE_COLORS.rise;
+    if (value < 0) return DEFAULT_PRICE_COLORS.fall;
+    return 'text-zinc-400';
   };
 
   const getAccountName = (accountId: string) => {
@@ -451,12 +445,7 @@ function PositionsPageContent() {
               const { pnlAmount, pnlPercent } = calculatePnL(position);
               const currency = getAccountCurrency(position.accountId);
               const assetConfig = ASSET_TYPE_CONFIG[position.assetType];
-              const pnlColor =
-                pnlAmount > 0
-                  ? 'text-red-500'
-                  : pnlAmount < 0
-                    ? 'text-green-600'
-                    : 'text-zinc-400';
+              const pnlColor = getPnLColor(pnlAmount);
               const isRefreshing = refreshingSymbols.has(position.symbol);
 
               return (

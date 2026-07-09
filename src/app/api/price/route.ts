@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { errorResponse, jsonResponse } from '@/lib/apiValidation';
 
 interface PriceData {
   symbol: string;
@@ -334,6 +335,13 @@ function getExchange(symbol: string): string {
   return 'UNKNOWN';
 }
 
+// 东方财富 API 返回的行情项
+interface EastMoneyQuoteItem {
+  f57?: string; // 代码
+  f43?: number; // 当前价格
+  [key: string]: unknown;
+}
+
 // Default exchange rates (fallback)
 const DEFAULT_RATES: Record<string, number> = {
   HKD: 0.92,    // HKD to CNY (approximate)
@@ -362,10 +370,10 @@ async function fetchExchangeRates(): Promise<Record<string, number>> {
 
     if (response.ok) {
       const data = await response.json();
-      const items = data?.data?.diff?.filter(Boolean) || [];
+      const items = (data?.data?.diff?.filter(Boolean) || []) as EastMoneyQuoteItem[];
 
       // USD/CNY (convert from USD/CNH)
-      const usdItem = items.find((item: any) => item.f57 === 'USDCNH');
+      const usdItem = items.find((item) => item.f57 === 'USDCNH');
       if (usdItem && usdItem.f43) {
         // USDCNH / 100 = actual rate, but we need USDCNY
         // Approximate: USDCNY ≈ USDCNH * 1.0 (they're very close)
@@ -373,26 +381,26 @@ async function fetchExchangeRates(): Promise<Record<string, number>> {
       }
 
       // HKD/CNY (convert from HKD/CNH)
-      const hkdItem = items.find((item: any) => item.f57 === 'HKDCNH');
+      const hkdItem = items.find((item) => item.f57 === 'HKDCNH');
       if (hkdItem && hkdItem.f43) {
         // HKDCNH / 100 = actual rate
         rates['HKD'] = hkdItem.f43 / 100;
       }
 
       // EUR/CNY
-      const eurItem = items.find((item: any) => item.f57 === 'EURCNY');
+      const eurItem = items.find((item) => item.f57 === 'EURCNY');
       if (eurItem && eurItem.f43) {
         rates['EUR'] = eurItem.f43 / 100;
       }
 
       // JPY/CNY (multiply by 100 to get actual rate)
-      const jpyItem = items.find((item: any) => item.f57 === 'JPYCNY');
+      const jpyItem = items.find((item) => item.f57 === 'JPYCNY');
       if (jpyItem && jpyItem.f43) {
         rates['JPY'] = jpyItem.f43 / 10000; // JPY is quoted differently
       }
 
       // GBP/CNY
-      const gbpItem = items.find((item: any) => item.f57 === 'GBPCNY');
+      const gbpItem = items.find((item) => item.f57 === 'GBPCNY');
       if (gbpItem && gbpItem.f43) {
         rates['GBP'] = gbpItem.f43 / 100;
       }
@@ -487,13 +495,22 @@ export async function GET(request: NextRequest) {
   const symbolsParam = searchParams.get('symbols');
 
   if (!symbolsParam) {
-    return NextResponse.json({ error: 'Missing symbols parameter' }, { status: 400 });
+    return errorResponse('Missing symbols parameter');
   }
 
+  // Validate symbol format: each symbol must be 1-20 alphanumeric characters
   const symbols = symbolsParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
 
-  if (symbols.length === 0) return NextResponse.json({ prices: [] });
-  if (symbols.length > 50) return NextResponse.json({ error: 'Too many symbols (max 50)' }, { status: 400 });
+  // Validate each symbol format
+  const validSymbolPattern = /^[A-Z0-9.\-]{1,20}$/;
+  for (const symbol of symbols) {
+    if (!validSymbolPattern.test(symbol)) {
+      return errorResponse(`Invalid symbol format: ${symbol}`);
+    }
+  }
+
+  if (symbols.length === 0) return jsonResponse({ prices: [] });
+  if (symbols.length > 50) return errorResponse('Too many symbols (max 50)');
 
   const prices: PriceData[] = [];
   const errors: string[] = [];
@@ -527,5 +544,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ success: errors.length === 0, prices, errors: errors.length > 0 ? errors : undefined });
+  return jsonResponse({ success: errors.length === 0, prices, errors: errors.length > 0 ? errors : undefined });
 }

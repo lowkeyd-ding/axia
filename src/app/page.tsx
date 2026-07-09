@@ -18,17 +18,10 @@ import {
 import { useAppStore } from '@/lib/store';
 import type { Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
-import { getExchangeRates, type ExchangeRates } from '@/lib/exchangeRates';
-
-// Default rates as fallback (will be replaced by API data)
-const DEFAULT_RATES: ExchangeRates = {
-  CNY: 1,
-  HKD: 0.92,
-  USD: 7.25,
-  EUR: 7.85,
-  JPY: 0.048,
-  GBP: 9.15,
-};
+import { getExchangeRates } from '@/lib/exchangeRates';
+import { DEFAULT_EXCHANGE_RATES } from '@/config/exchangeRates';
+import { DEFAULT_PRICE_COLORS } from '@/config/colors';
+import { formatCurrency, formatPercent } from '@/utils/format';
 
 // 根据股票代码判断币种
 const getSymbolCurrency = (symbol: string): string => {
@@ -110,7 +103,7 @@ export default function HomePage() {
   const { accounts, positions, snapshots } = useAppStore();
   const [timeRange, setTimeRange] = useState<TimeRange>('thisYear');
   const [benchmark, setBenchmark] = useState<Benchmark>('none');
-  const [currencyRates, setCurrencyRates] = useState<ExchangeRates>(DEFAULT_RATES);
+  const [currencyRates, setCurrencyRates] = useState(DEFAULT_EXCHANGE_RATES);
 
   // Fetch exchange rates on mount
   useEffect(() => {
@@ -322,27 +315,14 @@ export default function HomePage() {
     });
   }, [accounts, positions, totalStats.totalValueCNY]);
 
-  const formatCurrency = (value: number, currency = 'CNY') => {
-    return new Intl.NumberFormat('zh-CN', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(Math.abs(value));
-  };
-
-  const formatPercent = (value: number) => {
-    const sign = value >= 0 ? '+' : '';
-    return `${sign}${value.toFixed(2)}%`;
-  };
-
-  const pnlColor = totalStats.totalPnL > 0
-    ? 'text-red-500'
-    : totalStats.totalPnL < 0
-      ? 'text-green-600'
-      : 'text-zinc-400';
-
   const hasData = accounts.length > 0 && positions.length > 0;
+
+  // 计算盈亏颜色 (A股红涨绿跌)
+  const getPnLColor = (value: number) => {
+    if (value > 0) return DEFAULT_PRICE_COLORS.rise;
+    if (value < 0) return DEFAULT_PRICE_COLORS.fall;
+    return 'text-zinc-400';
+  };
 
   return (
     <div className="flex flex-col min-h-screen bg-zinc-50 text-zinc-900">
@@ -358,7 +338,7 @@ export default function HomePage() {
             </div>
             <div className="text-center md:border-x md:border-zinc-200">
               <p className="text-sm text-zinc-500 mb-2">总浮盈亏</p>
-              <p className={`text-3xl font-bold ${pnlColor}`}>
+              <p className={`text-3xl font-bold ${getPnLColor(totalStats.totalPnL)}`}>
                 {hasData ? (
                   <>
                     {totalStats.totalPnL >= 0 ? '+' : '-'}
@@ -371,7 +351,7 @@ export default function HomePage() {
             </div>
             <div className="text-center md:text-right">
               <p className="text-sm text-zinc-500 mb-2">浮盈亏%</p>
-              <p className={`text-3xl font-bold ${pnlColor}`}>
+              <p className={`text-3xl font-bold ${getPnLColor(totalStats.pnlPercent)}`}>
                 {hasData ? formatPercent(totalStats.pnlPercent) : '0.00%'}
               </p>
             </div>
@@ -467,9 +447,7 @@ export default function HomePage() {
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-blue-500" />
                     <span className="text-sm text-zinc-600">我的组合</span>
-                    <span className={`text-sm font-medium ${
-                      currentYield.portfolio >= 0 ? 'text-red-500' : 'text-green-600'
-                    }`}>
+                    <span className={`text-sm font-medium ${getPnLColor(currentYield.portfolio)}`}>
                       {formatPercent(currentYield.portfolio)}
                     </span>
                   </div>
@@ -479,9 +457,7 @@ export default function HomePage() {
                       <span className="text-sm text-zinc-600">
                         {BENCHMARK_OPTIONS.find(b => b.value === benchmark)?.label}
                       </span>
-                      <span className={`text-sm font-medium ${
-                        currentYield.benchmark >= 0 ? 'text-red-500' : 'text-green-600'
-                      }`}>
+                      <span className={`text-sm font-medium ${getPnLColor(currentYield.benchmark)}`}>
                         {formatPercent(currentYield.benchmark)}
                       </span>
                     </div>

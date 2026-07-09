@@ -13,8 +13,19 @@ import {
 } from '@/types';
 import { syncToCloud as cloudSyncToCloud, loadFromCloud as cloudLoadFromCloud, getSupabaseConfig as fetchSupabaseConfig } from './sync';
 
-// Debounce timer for syncing
-let syncTimer: NodeJS.Timeout | null = null;
+// Debounce timer for syncing - 移入 store 内部以便更好地管理
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * 清理同步定时器
+ * 在组件卸载或页面切换时调用，防止内存泄漏
+ */
+export function clearSyncTimer() {
+  if (syncTimer) {
+    clearTimeout(syncTimer);
+    syncTimer = null;
+  }
+}
 
 // 获取 Supabase 配置（从服务端 API 获取）
 async function getSupabaseConfig() {
@@ -22,7 +33,7 @@ async function getSupabaseConfig() {
 }
 
 // 加载云端数据并更新 store（必须在 persist 配置之前定义）
-async function loadFromCloudData(state: any) {
+async function loadFromCloudData(state: Partial<AppState>) {
   console.log('[CloudSync] Attempting to load from cloud...');
   try {
     const config = await getSupabaseConfig();

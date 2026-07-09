@@ -5,6 +5,7 @@ import { useAppStore } from '@/lib/store';
 import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
 import type { Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
+import { formatCurrency } from '@/utils/format';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
   bank: '银行',
@@ -116,15 +117,6 @@ export default function TradesPage() {
       (p) => p.accountId === accountId && p.symbol === symbol && p.assetType === assetType
     );
     return position?.quantity ?? 0;
-  };
-
-  const formatCurrency = (value: number, currency = 'CNY') => {
-    return new Intl.NumberFormat('zh-CN', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(Math.abs(value));
   };
 
   const formatDate = (dateStr: string) => {
