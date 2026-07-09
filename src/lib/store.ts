@@ -154,6 +154,9 @@ interface AppState {
   setTransfers: (transfers: Transfer[]) => void;
   setTargetAllocations: (allocations: TargetAllocation[]) => void;
 
+  // Clear all data (used on sign-out)
+  resetAll: () => void;
+
   // Data export/import
   exportData: () => string;
   importData: (jsonString: string) => { success: boolean; message: string };
@@ -810,6 +813,19 @@ export const useAppStore = create<AppState>()(
   setTargetAllocations: (targetAllocations) => {
     set({ targetAllocations });
     scheduleCloudSync();
+  },
+
+  // 清空全部业务数据（登出时使用），保留 _hasLoadedFromCloud 避免触发重新拉取
+  resetAll: () => {
+    set({
+      accounts: [],
+      positions: [],
+      snapshots: [],
+      trades: [],
+      transfers: [],
+      targetAllocations: [],
+      _lastSyncedAt: null,
+    });
   },
 
   // Data export - returns all data as JSON string
