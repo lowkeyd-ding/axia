@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { User, Session } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store';
@@ -19,11 +20,31 @@ const AuthContext = createContext<AuthContextType>({
   signOut: async () => {},
 });
 
+const AUTH_PATHS = new Set([
+  '/auth/login',
+  '/auth/register',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+  '/auth/callback',
+  '/auth/update-password',
+]);
+
+/**
+ * 受保护路径：需要登录后才能访问
+ */
+function isProtectedPath(pathname: string): boolean {
+  if (pathname === '/') return false; // 首页允许未登录查看概览
+  if (AUTH_PATHS.has(pathname) || pathname.startsWith('/auth/')) return false;
+  return true;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const resetAll = useAppStore((s) => s.resetAll);
+  const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     const supabase = createClient();
@@ -41,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (_event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
+        setIsLoading(false);
       }
     );
 
@@ -49,11 +71,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // 客户端鉴权：未登录访问受保护路径 → 跳登录
+  useEffect(() => {
+    if (isLoading) return;
+    if (!user && isProtectedPath(pathname)) {
+      const next = pathname !== '/' ? `?next=${encodeURIComponent(pathname)}` : '';
+      router.replace(`/auth/login${next}`);
+    }
+    if (user && AUTH_PATHS.has(pathname)) {
+      router.replace('/');
+    }
+  }, [isLoading, user, pathname, router]);
+
+  // 加载中渲染占位，避免受保护页面一闪而过
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50">
+        <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
   const signOut = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    // 清空本地 store，避免下一个登录用户看到前一个用户的数据
     resetAll();
+    router.push('/auth/login');
   };
 
   return (
