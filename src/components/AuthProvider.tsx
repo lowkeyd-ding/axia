@@ -20,21 +20,16 @@ const AuthContext = createContext<AuthContextType>({
   signOut: async () => {},
 });
 
-const AUTH_PATHS = new Set([
-  '/auth/login',
-  '/auth/register',
-  '/auth/forgot-password',
-  '/auth/reset-password',
-  '/auth/callback',
-  '/auth/update-password',
-]);
+// 以 /auth/ 开头的页面都不做 redirect，避免误伤
+function isAuthPath(pathname: string): boolean {
+  return pathname.startsWith('/auth/');
+}
 
-/**
- * 受保护路径：需要登录后才能访问
- */
 function isProtectedPath(pathname: string): boolean {
-  if (pathname === '/') return false; // 首页允许未登录查看概览
-  if (AUTH_PATHS.has(pathname) || pathname.startsWith('/auth/')) return false;
+  // 首页允许未登录查看；auth 路径不保护
+  if (pathname === '/' || isAuthPath(pathname)) return false;
+  // API 路由由服务端自己鉴权，不在客户端拦截
+  if (pathname.startsWith('/api/')) return false;
   return true;
 }
 
@@ -49,15 +44,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const supabase = createClient();
 
-    const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setUser(session?.user ?? null);
-      setIsLoading(false);
-    };
-
-    getSession();
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setSession(session);
@@ -65,6 +51,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
       }
     );
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      setIsLoading(false);
+    });
 
     return () => {
       subscription.unsubscribe();
@@ -78,19 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const next = pathname !== '/' ? `?next=${encodeURIComponent(pathname)}` : '';
       router.replace(`/auth/login${next}`);
     }
-    if (user && AUTH_PATHS.has(pathname)) {
-      router.replace('/');
-    }
   }, [isLoading, user, pathname, router]);
-
-  // 加载中渲染占位，避免受保护页面一闪而过
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-50">
-        <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-      </div>
-    );
-  }
 
   const signOut = async () => {
     const supabase = createClient();

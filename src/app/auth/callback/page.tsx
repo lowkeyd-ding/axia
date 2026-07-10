@@ -1,28 +1,34 @@
 'use client';
 
-import { useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { useAppStore } from '@/lib/store';
 
-function CallbackContent() {
+export default function AuthCallbackPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const loadFromCloud = useAppStore((s) => s.loadFromCloud);
+  const [status, setStatus] = useState<'loading' | 'error'>('loading');
+  const [message, setMessage] = useState('正在完成登录...');
 
   useEffect(() => {
     let cancelled = false;
 
     const handle = async () => {
+      if (typeof window === 'undefined') return;
+
       const supabase = createClient();
-      const next = searchParams.get('next') ?? '/';
+      const params = new URLSearchParams(window.location.search);
+      const next = params.get('next') ?? '/';
 
       // PKCE / OAuth 流程：用 URL 上的 code 交换 session
-      const code = searchParams.get('code');
+      const code = params.get('code');
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error && !cancelled) {
-          router.replace(`/auth/login?error=${encodeURIComponent(error.message)}`);
+          setStatus('error');
+          setMessage(error.message);
+          setTimeout(() => {
+            router.replace(`/auth/login?error=${encodeURIComponent(error.message)}`);
+          }, 1500);
           return;
         }
       }
@@ -32,19 +38,17 @@ function CallbackContent() {
       if (cancelled) return;
 
       if (error || !session) {
-        router.replace(
-          `/auth/login?error=${encodeURIComponent(error?.message ?? '登录失败，请重试')}`
-        );
+        setStatus('error');
+        setMessage(error?.message ?? '登录失败，请重试');
+        setTimeout(() => {
+          router.replace(
+            `/auth/login?error=${encodeURIComponent(error?.message ?? '登录失败，请重试')}`
+          );
+        }, 1500);
         return;
       }
 
-      try {
-        await loadFromCloud();
-      } catch {
-        // ignore
-      }
-
-      // Hard navigation 让 proxy 用新 cookie 重新跑
+      // 跳转到目标页
       window.location.href = next;
     };
 
@@ -52,31 +56,17 @@ function CallbackContent() {
     return () => {
       cancelled = true;
     };
-  }, [router, searchParams, loadFromCloud]);
+  }, [router]);
 
   return (
     <div className="min-h-screen bg-zinc-50 flex items-center justify-center">
       <div className="text-center">
         <div className="w-10 h-10 rounded-full border-2 border-blue-500 border-t-transparent animate-spin mx-auto mb-4" />
-        <p className="text-sm text-zinc-500">正在完成登录...</p>
+        <p className="text-sm text-zinc-500">{message}</p>
+        {status === 'error' && (
+          <p className="text-xs text-zinc-400 mt-2">即将跳转到登录页...</p>
+        )}
       </div>
     </div>
-  );
-}
-
-export default function AuthCallbackPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-zinc-50 flex items-center justify-center">
-          <div className="text-center">
-            <div className="w-10 h-10 rounded-full border-2 border-blue-500 border-t-transparent animate-spin mx-auto mb-4" />
-            <p className="text-sm text-zinc-500">正在完成登录...</p>
-          </div>
-        </div>
-      }
-    >
-      <CallbackContent />
-    </Suspense>
   );
 }
