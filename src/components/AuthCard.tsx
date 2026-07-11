@@ -3,7 +3,7 @@
 import Link from 'next/link';
 
 /**
- * 4 个 auth 页面共用的卡片壳：标题、可选副标题、模式切换链接。
+ * Auth 页面共用的卡片壳：标题、可选副标题、模式切换链接。
  * 让每个页面只关心业务表单，重复的 UI 收敛到一处。
  */
 export default function AuthCard({

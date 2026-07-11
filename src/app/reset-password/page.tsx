@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import AuthCard, { FormError, inputClass, buttonClass } from '../AuthCard';
+import AuthCard, { FormError, inputClass, buttonClass } from '@/components/AuthCard';
 
 export default function ResetPasswordPage() {
   const [ready, setReady] = useState(false);
@@ -66,7 +66,7 @@ export default function ResetPasswordPage() {
         title="设置新密码"
         subtitle="请输入您的新密码"
         footer={
-          <Link href="/auth/login" className="text-blue-600 hover:text-blue-700 font-medium">
+          <Link href="/signin" className="text-blue-600 hover:text-blue-700 font-medium">
             返回登录
           </Link>
         }

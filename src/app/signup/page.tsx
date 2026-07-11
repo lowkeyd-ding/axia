@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store';
-import AuthCard, { FormError, inputClass, buttonClass } from '../AuthCard';
+import AuthCard, { FormError, inputClass, buttonClass } from '@/components/AuthCard';
 
 export default function RegisterPage() {
   const supabase = createClient();
@@ -42,7 +42,7 @@ export default function RegisterPage() {
       options: {
         // 即便后端开启了"邮箱确认"，也回跳到我们的 callback
         // Supabase 关闭确认时，signUp 后立即返回 session
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: `${window.location.origin}/auth-callback`,
       },
     });
 
@@ -75,7 +75,7 @@ export default function RegisterPage() {
         footer={
           <>
             已有账户？{' '}
-            <Link href="/auth/login" className="text-blue-600 hover:text-blue-700 font-medium">
+            <Link href="/signin" className="text-blue-600 hover:text-blue-700 font-medium">
               登录
             </Link>
           </>

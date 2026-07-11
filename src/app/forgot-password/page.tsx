@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import AuthCard, { FormError, inputClass, buttonClass } from '../AuthCard';
+import AuthCard, { FormError, inputClass, buttonClass } from '@/components/AuthCard';
 
 export default function ForgotPasswordPage() {
   const supabase = createClient();
@@ -24,7 +24,7 @@ export default function ForgotPasswordPage() {
 
     setLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/auth/reset-password`,
+      redirectTo: `${window.location.origin}/reset-password`,
     });
 
     if (error) {
@@ -45,7 +45,7 @@ export default function ForgotPasswordPage() {
         footer={
           <>
             想起来了？{' '}
-            <Link href="/auth/login" className="text-blue-600 hover:text-blue-700 font-medium">
+            <Link href="/signin" className="text-blue-600 hover:text-blue-700 font-medium">
               返回登录
             </Link>
           </>

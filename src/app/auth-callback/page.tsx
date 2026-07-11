@@ -27,7 +27,7 @@ export default function AuthCallbackPage() {
           setStatus('error');
           setMessage(error.message);
           setTimeout(() => {
-            router.replace(`/auth/login?error=${encodeURIComponent(error.message)}`);
+            router.replace(`/signin?error=${encodeURIComponent(error.message)}`);
           }, 1500);
           return;
         }
@@ -41,9 +41,9 @@ export default function AuthCallbackPage() {
         setStatus('error');
         setMessage(error?.message ?? '登录失败，请重试');
         setTimeout(() => {
-          router.replace(
-            `/auth/login?error=${encodeURIComponent(error?.message ?? '登录失败，请重试')}`
-          );
+            router.replace(
+              `/signin?error=${encodeURIComponent(error?.message ?? '登录失败，请重试')}`
+            );
         }, 1500);
         return;
       }

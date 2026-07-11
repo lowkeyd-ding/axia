@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { useAppStore, clearSyncTimer } from '@/lib/store';
 
-const AUTH_PATHS = ['/auth/login', '/auth/register', '/auth/forgot-password', '/auth/reset-password', '/auth/callback', '/auth/update-password'];
+// 注：路由已迁出 /auth/* 以规避 Vercel 项目级 redirect 循环
+const AUTH_PATHS = ['/signin', '/signup', '/forgot-password', '/reset-password', '/auth-callback', '/update-password'];
 
 export function CloudSyncInitializer() {
   const pathname = usePathname();

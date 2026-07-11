@@ -20,16 +20,22 @@ const AuthContext = createContext<AuthContextType>({
   signOut: async () => {},
 });
 
-// 以 /auth/ 开头的页面都不做 redirect，避免误伤
-function isAuthPath(pathname: string): boolean {
-  return pathname.startsWith('/auth/');
-}
+// 注：Vercel 在 /auth/* 路径下有项目级 redirect 循环，故改用 /signin、/signup 等前缀
+const AUTH_PATHS = new Set([
+  '/signin',
+  '/signup',
+  '/forgot-password',
+  '/reset-password',
+  '/auth-callback',
+  '/update-password',
+]);
 
+/**
+ * 受保护路径：需要登录后才能访问
+ */
 function isProtectedPath(pathname: string): boolean {
-  // 首页允许未登录查看；auth 路径不保护
-  if (pathname === '/' || isAuthPath(pathname)) return false;
-  // API 路由由服务端自己鉴权，不在客户端拦截
-  if (pathname.startsWith('/api/')) return false;
+  if (pathname === '/') return false; // 首页允许未登录查看概览
+  if (AUTH_PATHS.has(pathname)) return false;
   return true;
 }
 
@@ -44,6 +50,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const supabase = createClient();
 
+    const getSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      setUser(session?.user ?? null);
+      setIsLoading(false);
+    };
+
+    getSession();
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setSession(session);
@@ -51,12 +66,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
       }
     );
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setIsLoading(false);
-    });
 
     return () => {
       subscription.unsubscribe();
@@ -68,15 +77,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isLoading) return;
     if (!user && isProtectedPath(pathname)) {
       const next = pathname !== '/' ? `?next=${encodeURIComponent(pathname)}` : '';
-      router.replace(`/auth/login${next}`);
+      router.replace(`/signin${next}`);
+    }
+    if (user && AUTH_PATHS.has(pathname)) {
+      router.replace('/');
     }
   }, [isLoading, user, pathname, router]);
+
+  // 加载中渲染占位，避免受保护页面一闪而过
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50">
+        <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
 
   const signOut = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
     resetAll();
-    router.push('/auth/login');
+    router.push('/signin');
   };
 
   return (
