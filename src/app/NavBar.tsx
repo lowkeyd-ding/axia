@@ -2,9 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useRef, useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { createClient } from '@/lib/supabase/client';
+import { useState, useRef, useEffect } from 'react';
 
 export default function NavBar() {
   const pathname = usePathname();
@@ -19,6 +18,7 @@ export default function NavBar() {
         setDropdownOpen(false);
       }
     };
+
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
@@ -86,6 +86,7 @@ export default function NavBar() {
               );
             })}
 
+            {/* Auth Section */}
             <div className="ml-2 pl-2 border-l border-zinc-200" ref={dropdownRef}>
               {isLoading ? (
                 <div className="w-8 h-8 rounded-full bg-zinc-200 animate-pulse" />

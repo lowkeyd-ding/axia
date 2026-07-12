@@ -6,20 +6,6 @@ import { User, Session } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store';
 
-interface AuthContextType {
-  user: User | null;
-  session: Session | null;
-  isLoading: boolean;
-  signOut: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  session: null,
-  isLoading: true,
-  signOut: async () => {},
-});
-
 // 注：Vercel 在 /auth/* 路径下有项目级 redirect 循环，故改用 /signin、/signup 等前缀
 const AUTH_PATHS = new Set([
   '/signin',
@@ -38,6 +24,20 @@ function isProtectedPath(pathname: string): boolean {
   if (AUTH_PATHS.has(pathname)) return false;
   return true;
 }
+
+interface AuthContextType {
+  user: User | null;
+  session: Session | null;
+  isLoading: boolean;
+  signOut: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  session: null,
+  isLoading: true,
+  signOut: async () => {},
+});
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
