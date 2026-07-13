@@ -1,13 +1,13 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { Account, Position, Snapshot, Trade, Transfer, TargetAllocation } from '@/types';
 
-let supabaseClient: SupabaseClient | null = null;
-
-export function getSupabaseClient(url: string, anonKey: string) {
-  if (!supabaseClient) {
-    supabaseClient = createClient(url, anonKey);
-  }
-  return supabaseClient;
+export interface CloudSyncData {
+  accounts: Account[];
+  positions: Position[];
+  snapshots: Snapshot[];
+  trades: Trade[];
+  transfers: Transfer[];
+  targetAllocations: TargetAllocation[];
 }
 
 export async function getSupabaseConfig(): Promise<{ url: string; anonKey: string } | null> {
@@ -29,31 +29,39 @@ export async function getSupabaseConfig(): Promise<{ url: string; anonKey: strin
   }
 }
 
-const DATA_KEY = 'axia_data';
+/**
+ * Per-user authenticated Supabase client.
+ *
+ * Returns null if the user is not logged in — callers MUST treat this as a
+ * no-op (no cloud sync happens for anonymous visitors).
+ */
+async function getAuthedClient(): Promise<{ client: SupabaseClient; userId: string } | null> {
+  const config = await getSupabaseConfig();
+  if (!config) return null;
 
-export interface CloudSyncData {
-  accounts: Account[];
-  positions: Position[];
-  snapshots: Snapshot[];
-  trades: Trade[];
-  transfers: Transfer[];
-  targetAllocations: TargetAllocation[];
+  const client = createClient(config.url, config.anonKey, {
+    auth: { persistSession: true, autoRefreshToken: true },
+  });
+
+  const { data, error } = await client.auth.getSession();
+  if (error || !data.session?.user) return null;
+
+  return { client, userId: data.session.user.id };
 }
 
-export async function syncToCloud(
-  data: CloudSyncData,
-  url: string,
-  anonKey: string
-): Promise<boolean> {
+export async function syncToCloud(data: CloudSyncData): Promise<boolean> {
   try {
-    const client = getSupabaseClient(url, anonKey);
-    const record = {
-      id: DATA_KEY,
-      data: data,
-      updated_at: new Date().toISOString(),
-    };
+    const authed = await getAuthedClient();
+    if (!authed) {
+      console.log('[CloudSync] No active session, skipping sync');
+      return false;
+    }
 
-    const { error } = await client.from('axia_data').upsert(record);
+    const { error } = await authed.client.from('axia_data').upsert({
+      user_id: authed.userId,
+      data,
+      updated_at: new Date().toISOString(),
+    });
 
     if (error) {
       console.error('[CloudSync] Sync error:', error);
@@ -67,26 +75,32 @@ export async function syncToCloud(
   }
 }
 
-export async function loadFromCloud(
-  url: string,
-  anonKey: string
-): Promise<CloudSyncData | null> {
+export async function loadFromCloud(): Promise<CloudSyncData | null> {
   try {
-    const client = getSupabaseClient(url, anonKey);
-    const { data, error } = await client
-      .from('axia_data')
-      .select('data')
-      .eq('id', DATA_KEY)
-      .single();
-
-    if (error || !data) {
-      console.log('[CloudSync] No data in cloud or error:', error);
+    const authed = await getAuthedClient();
+    if (!authed) {
+      console.log('[CloudSync] No active session, skipping load');
       return null;
     }
-    console.log('[CloudSync] Data loaded from cloud:', data.data);
+
+    const { data, error } = await authed.client
+      .from('axia_data')
+      .select('data')
+      .eq('user_id', authed.userId)
+      .maybeSingle();
+
+    if (error) {
+      console.log('[CloudSync] Load error:', error);
+      return null;
+    }
+    if (!data) {
+      console.log('[CloudSync] No cloud data for this user');
+      return null;
+    }
+    console.log('[CloudSync] Data loaded from cloud');
     return data.data as CloudSyncData;
   } catch (error) {
-    console.error('Failed to load from cloud:', error);
+    console.error('[CloudSync] Failed to load from cloud:', error);
     return null;
   }
 }

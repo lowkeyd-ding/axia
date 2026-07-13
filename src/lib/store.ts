@@ -11,7 +11,7 @@ import {
   ActionResult,
   TradeExecutionResult,
 } from '@/types';
-import { syncToCloud as cloudSyncToCloud, loadFromCloud as cloudLoadFromCloud, getSupabaseConfig as fetchSupabaseConfig } from './sync';
+import { syncToCloud as cloudSyncToCloud, loadFromCloud as cloudLoadFromCloud } from './sync';
 
 // Debounce timer for syncing - 移入 store 内部以便更好地管理
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -27,21 +27,11 @@ export function clearSyncTimer() {
   }
 }
 
-// 获取 Supabase 配置（从服务端 API 获取）
-async function getSupabaseConfig() {
-  return await fetchSupabaseConfig();
-}
-
-// 加载云端数据并更新 store（必须在 persist 配置之前定义）
+// 加载云端数据并更新 store
 async function loadFromCloudData(state: Partial<AppState>) {
   console.log('[CloudSync] Attempting to load from cloud...');
   try {
-    const config = await getSupabaseConfig();
-    if (!config) {
-      console.warn('[CloudSync] Failed to get Supabase config');
-      return;
-    }
-    const cloudData = await cloudLoadFromCloud(config.url, config.anonKey);
+    const cloudData = await cloudLoadFromCloud();
     if (cloudData) {
       console.log('[CloudSync] Found cloud data, updating store');
       useAppStore.setState({
@@ -82,11 +72,6 @@ async function scheduleCloudSync() {
     clearTimeout(syncTimer);
   }
   syncTimer = setTimeout(async () => {
-    const config = await getSupabaseConfig();
-    if (!config) {
-      console.log('[CloudSync] Missing Supabase config, skipping sync');
-      return;
-    }
     const state = useAppStore.getState();
     const data = {
       accounts: state.accounts,
@@ -96,7 +81,7 @@ async function scheduleCloudSync() {
       transfers: state.transfers,
       targetAllocations: state.targetAllocations,
     };
-    const success = await cloudSyncToCloud(data, config.url, config.anonKey);
+    const success = await cloudSyncToCloud(data);
     if (success) {
       console.log('[CloudSync] Auto-synced to cloud');
     }
@@ -193,20 +178,15 @@ export const useAppStore = create<AppState>()(
       transfers: state.transfers,
       targetAllocations: state.targetAllocations,
     };
-    
+
     // Debounce sync - wait 1 second after last change
     if (syncTimer) {
       clearTimeout(syncTimer);
     }
-    
+
     return new Promise((resolve) => {
       syncTimer = setTimeout(async () => {
-        const config = await getSupabaseConfig();
-        if (!config) {
-          resolve(false);
-          return;
-        }
-        const success = await cloudSyncToCloud(data, config.url, config.anonKey);
+        const success = await cloudSyncToCloud(data);
         if (success) {
           set({ _lastSyncedAt: new Date().toISOString() });
         }
@@ -230,11 +210,7 @@ export const useAppStore = create<AppState>()(
       transfers: state.transfers,
       targetAllocations: state.targetAllocations,
     };
-    const config = await getSupabaseConfig();
-    if (!config) {
-      return false;
-    }
-    const success = await cloudSyncToCloud(data, config.url, config.anonKey);
+    const success = await cloudSyncToCloud(data);
     if (success) {
       set({ _lastSyncedAt: new Date().toISOString() });
     }
@@ -242,18 +218,9 @@ export const useAppStore = create<AppState>()(
   },
 
   loadFromCloud: async () => {
-    const config = await getSupabaseConfig();
-    console.log('[CloudSync] Loading from cloud...', { 
-      hasConfig: !!config,
-    });
-    
-    if (!config) {
-      console.warn('[CloudSync] Supabase not configured, using localStorage only');
-      set({ _hasLoadedFromCloud: true });
-      return false;
-    }
-    
-    const cloudData = await cloudLoadFromCloud(config.url, config.anonKey);
+    console.log('[CloudSync] Loading from cloud...');
+
+    const cloudData = await cloudLoadFromCloud();
     if (cloudData) {
       console.log('[CloudSync] Loaded from cloud:', cloudData);
       set({
@@ -824,6 +791,7 @@ export const useAppStore = create<AppState>()(
       trades: [],
       transfers: [],
       targetAllocations: [],
+      _hasLoadedFromCloud: false,
       _lastSyncedAt: null,
     });
   },
