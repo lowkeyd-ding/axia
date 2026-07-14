@@ -13,6 +13,8 @@
  */
 
 import { DEFAULT_EXCHANGE_RATES, type ExchangeRates } from '@/config/exchangeRates';
+import { fetchSinaForexRates } from '@/lib/forexApi';
+import { getHkexSettlementRate } from '@/lib/hkexRateClient';
 
 // 港股通结算汇率结构
 export interface HkexSettlementRates {
@@ -61,9 +63,9 @@ export async function getFxRates(): Promise<FxRates> {
   }
 
   try {
-    const [ratesRes, hkexRes] = await Promise.allSettled([
-      fetch('/api/rates', { signal: AbortSignal.timeout(8000) }),
-      fetch('/api/hkex-rate', { signal: AbortSignal.timeout(5000) }),
+    const [forexResults, hkexRate] = await Promise.allSettled([
+      fetchSinaForexRates(),
+      getHkexSettlementRate(),
     ]);
 
     const result: FxRates = {
@@ -74,22 +76,16 @@ export async function getFxRates(): Promise<FxRates> {
       GBP: DEFAULT_EXCHANGE_RATES.GBP,
     };
 
-    if (ratesRes.status === 'fulfilled' && ratesRes.value.ok) {
-      const data = await ratesRes.value.json();
-      if (data.rateMap) {
-        for (const [ccy, rate] of Object.entries(data.rateMap)) {
-          if (ccy !== 'CNY' && typeof rate === 'number' && rate > 0) {
-            (result as unknown as Record<string, number>)[ccy] = rate;
-          }
+    if (forexResults.status === 'fulfilled' && forexResults.value.length > 0) {
+      for (const r of forexResults.value) {
+        if (r.code !== 'CNY' && r.rate > 0) {
+          (result as unknown as Record<string, number>)[r.code] = r.rate;
         }
       }
     }
 
-    if (hkexRes.status === 'fulfilled' && hkexRes.value.ok) {
-      const hkexData = await hkexRes.value.json();
-      if (hkexData.rate) {
-        result.hkex = hkexData.rate;
-      }
+    if (hkexRate.status === 'fulfilled' && hkexRate.value) {
+      result.hkex = hkexRate.value.rate;
     }
 
     cachedRates = result;

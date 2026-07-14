@@ -1,9 +1,10 @@
 /**
- * Exchange Rates API Client
- * Fetches and caches exchange rates from the server-side API
+ * Exchange Rates
+ * Client-side fetcher for static export.
  */
 
 import { DEFAULT_EXCHANGE_RATES, type ExchangeRates } from '@/config/exchangeRates';
+import { fetchSinaForexRates } from '@/lib/forexApi';
 
 // Cache for exchange rates
 let cachedRates: ExchangeRates | null = null;
@@ -23,16 +24,24 @@ export async function getExchangeRates(): Promise<ExchangeRates> {
   }
 
   try {
-    const response = await fetch('/api/rates');
-    if (response.ok) {
-      const data = await response.json();
-      if (data.rateMap) {
-        const newRates = { ...DEFAULT_EXCHANGE_RATES, ...data.rateMap };
-        cachedRates = newRates;
-        cacheTimestamp = now;
-        return newRates;
+    const rates = await fetchSinaForexRates();
+    const rateMap: Record<string, number> = {};
+    for (const r of rates) {
+      if (r.code !== 'CNY' && r.rate > 0) {
+        rateMap[r.code] = r.rate;
       }
     }
+
+    const allCurrencies = ['HKD', 'USD', 'EUR', 'JPY', 'GBP'] as const;
+    for (const ccy of allCurrencies) {
+      if (!(ccy in rateMap)) {
+        rateMap[ccy] = (DEFAULT_EXCHANGE_RATES as Record<string, number>)[ccy] ?? 1;
+      }
+    }
+
+    cachedRates = rateMap as unknown as ExchangeRates;
+    cacheTimestamp = now;
+    return cachedRates;
   } catch (error) {
     console.error('Failed to fetch exchange rates:', error);
   }

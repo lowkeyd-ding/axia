@@ -1,6 +1,6 @@
 /**
  * Client-side Price API
- * Calls our server-side proxy to fetch stock prices
+ * Calls external price sources directly for static export compatibility.
  */
 
 export interface PriceData {
@@ -65,11 +65,9 @@ export async function getPrice(symbol: string): Promise<PriceData | null> {
   const upper = symbol.toUpperCase();
 
   try {
-    const response = await fetch(`/api/price?symbols=${upper}`);
-    const data = await response.json();
-    
-    if (data.prices && data.prices.length > 0) {
-      return data.prices[0] as PriceData;
+    const prices = await refreshPrices([upper]);
+    if (prices.prices && prices.prices.length > 0) {
+      return prices.prices[0];
     }
   } catch {
     // Fall through to fallback
@@ -102,22 +100,51 @@ export async function refreshPrices(symbols: string[]): Promise<RefreshPricesRes
   }
 
   try {
-    const symbolsParam = symbols.map(s => s.toUpperCase()).join(',');
-    const response = await fetch(`/api/price?symbols=${symbolsParam}`);
-    const data = await response.json();
+    const prices = await Promise.all(
+      symbols.map(async (symbol) => {
+        const result = await fetchSymbol(symbol);
+        return { symbol, result };
+      })
+    );
 
-    if (data.prices) {
-      return {
-        success: !data.errors || data.errors.length === 0,
-        prices: data.prices as PriceData[],
-        errors: data.errors
-      };
+    const results: PriceData[] = [];
+    const errors: string[] = [];
+
+    for (const { symbol, result } of prices) {
+      if (result) {
+        results.push(result);
+      } else {
+        const mock = MOCK_PRICES[symbol.toUpperCase()];
+        if (mock) {
+          results.push({
+            symbol: symbol.toUpperCase(),
+            name: mock.name,
+            price: mock.price,
+            change: mock.change,
+            changePercent: (mock.change / (mock.price - mock.change)) * 100,
+            prevClose: mock.price - mock.change,
+            open: mock.price,
+            high: mock.price,
+            low: mock.price,
+            volume: 0,
+            timestamp: new Date().toISOString(),
+            source: 'manual'
+          });
+        } else {
+          errors.push(`无法获取 ${symbol}`);
+        }
+      }
     }
+
+    return {
+      success: errors.length === 0,
+      prices: results,
+      errors: errors.length > 0 ? errors : undefined,
+    };
   } catch (error) {
     console.error('Price API error:', error);
+    return { success: false, errors: ['无法获取价格数据'] };
   }
-
-  return { success: false, errors: ['无法获取价格数据'] };
 }
 
 /**
@@ -129,4 +156,9 @@ export async function refreshPricesByType(
 ): Promise<RefreshPricesResult> {
   void _assetTypes;
   return refreshPrices(symbols);
+}
+
+async function fetchSymbol(symbol: string): Promise<PriceData | null> {
+  const { fetchSymbol: externalFetch } = await import('@/lib/externalPriceApi');
+  return externalFetch(symbol);
 }
