@@ -9,13 +9,13 @@
     "start": "next start",
     "lint": "eslint",
     "export": "next build",
-    "deploy": "npm run build && gh-pages -d out -t true",
+    "deploy": "npm run build && gh-pages -d out",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui"
   },
-  "homepage": "https://axia.com",
+  "homepage": "https://lowkeyd-ding.github.io/axia",
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",

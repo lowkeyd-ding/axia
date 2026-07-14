@@ -10,23 +10,16 @@ export interface CloudSyncData {
   targetAllocations: TargetAllocation[];
 }
 
-export async function getSupabaseConfig(): Promise<{ url: string; anonKey: string } | null> {
-  try {
-    const response = await fetch('/api/config');
-    if (!response.ok) {
-      console.error('[CloudSync] Failed to fetch config:', response.status);
-      return null;
-    }
-    const config = await response.json();
-    if (!config.url || !config.anonKey) {
-      console.error('[CloudSync] Invalid config received');
-      return null;
-    }
-    return { url: config.url, anonKey: config.anonKey };
-  } catch (error) {
-    console.error('[CloudSync] Error fetching config:', error);
+function getSupabaseConfig(): { url: string; anonKey: string } | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) {
+    console.error('[CloudSync] Missing Supabase public env vars');
     return null;
   }
+
+  return { url, anonKey };
 }
 
 /**
@@ -36,7 +29,7 @@ export async function getSupabaseConfig(): Promise<{ url: string; anonKey: strin
  * no-op (no cloud sync happens for anonymous visitors).
  */
 async function getAuthedClient(): Promise<{ client: SupabaseClient; userId: string } | null> {
-  const config = await getSupabaseConfig();
+  const config = getSupabaseConfig();
   if (!config) return null;
 
   const client = createClient(config.url, config.anonKey, {
