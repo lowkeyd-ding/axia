@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase/client';
 import type { Account, Position, Snapshot, Trade, Transfer, TargetAllocation } from '@/types';
 
 export interface CloudSyncData {
@@ -28,13 +28,10 @@ function getSupabaseConfig(): { url: string; anonKey: string } | null {
  * Returns null if the user is not logged in — callers MUST treat this as a
  * no-op (no cloud sync happens for anonymous visitors).
  */
-async function getAuthedClient(): Promise<{ client: SupabaseClient; userId: string } | null> {
-  const config = getSupabaseConfig();
-  if (!config) return null;
+async function getAuthedClient(): Promise<{ client: ReturnType<typeof createClient>; userId: string } | null> {
+  if (!getSupabaseConfig()) return null;
 
-  const client = createClient(config.url, config.anonKey, {
-    auth: { persistSession: true, autoRefreshToken: true },
-  });
+  const client = createClient();
 
   const { data, error } = await client.auth.getSession();
   if (error || !data.session?.user) return null;
@@ -103,9 +100,7 @@ async function upsertCloudData(userId: string, data: CloudSyncData): Promise<boo
     return false;
   }
 
-  const client = createClient(config.url, config.anonKey, {
-    auth: { persistSession: true, autoRefreshToken: true },
-  });
+  const client = createClient();
 
   const { error } = await client.from('axia_data').upsert({
     user_id: userId,
