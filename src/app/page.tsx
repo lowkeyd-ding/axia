@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   PieChart,
@@ -18,24 +18,10 @@ import {
 import { useAppStore } from '@/lib/store';
 import type { Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
-import { getExchangeRates } from '@/lib/exchangeRates';
-import { DEFAULT_EXCHANGE_RATES } from '@/config/exchangeRates';
+import { useFxRates } from '@/lib/hooks/useFxRates';
+import { convertToAccountCNY, getEffectiveCurrency } from '@/lib/fx';
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
 import { formatCurrency, formatPercent } from '@/utils/format';
-
-// 根据股票代码判断币种
-const getSymbolCurrency = (symbol: string): string => {
-  const upper = symbol.toUpperCase();
-  // 港股代码（5位数字，如 03690 美团、00700 腾讯）
-  if (/^\d{5}$/.test(upper)) return 'HKD';
-  // A股代码（6位数字，沪市以6开头，深市以0、2、3开头）
-  if (/^[0236]\d{5}$/.test(upper)) return 'CNY';
-  // 基金/REITs（5开头）
-  if (/^5\d{5}$/.test(upper)) return 'CNY';
-  // 美股（字母代码，如 AAPL、TSLA）
-  if (/^[A-Z]{1,5}$/.test(upper)) return 'USD';
-  return 'CNY'; // 默认人民币
-};
 
 const ASSET_COLORS = [
   '#3b82f6', // blue - stock
@@ -103,52 +89,38 @@ export default function HomePage() {
   const { accounts, positions, snapshots } = useAppStore();
   const [timeRange, setTimeRange] = useState<TimeRange>('thisYear');
   const [benchmark, setBenchmark] = useState<Benchmark>('none');
-  const [currencyRates, setCurrencyRates] = useState(DEFAULT_EXCHANGE_RATES);
-
-  // Fetch exchange rates on mount
-  useEffect(() => {
-    getExchangeRates().then(setCurrencyRates);
-  }, []);
+  const { rates: fxRates } = useFxRates();
 
   const totalStats = useMemo(() => {
     let totalValueCNY = 0;
     let totalCostBasis = 0;
     let totalCashCNY = 0;
 
-    // 计算所有账户余额折算CNY
+    // 现金余额折算：账户币种 ≠ CNY → 现汇卖出价换算
     accounts.forEach((account) => {
-      const rate = currencyRates[account.currency] ?? 1;
-      totalCashCNY += account.balance * rate;
+      const acctCcy = account.currency || 'CNY';
+      const cashValue = convertToAccountCNY(account.balance, acctCcy, 'CNY', fxRates);
+      totalCashCNY += cashValue;
     });
 
-    // 计算所有持仓折算CNY
+    // 持仓市值 + 成本折算：统一走 convertToAccountCNY
     positions.forEach((p) => {
-      // 优先使用持仓自己的币种，否则使用账户币种
-      const positionCurrency = p.currency || (() => {
-        const account = accounts.find((a) => a.id === p.accountId);
-        return account?.currency || 'CNY';
-      })();
-      const rate = currencyRates[positionCurrency] ?? 1;
+      const account = accounts.find((a) => a.id === p.accountId);
+      const acctCcy = account?.currency || 'CNY';
+      const posCcy = getEffectiveCurrency(p.currency, acctCcy);
 
-      const valueCNY = p.currentPrice * p.quantity * rate;
-      const costCNY = p.avgCost * p.quantity * rate;
-      totalValueCNY += valueCNY;
-      totalCostBasis += costCNY;
+      const value = convertToAccountCNY(p.currentPrice * p.quantity, posCcy, 'CNY', fxRates);
+      const cost  = convertToAccountCNY(p.avgCost * p.quantity, posCcy, 'CNY', fxRates);
+      totalValueCNY += value;
+      totalCostBasis += cost;
     });
 
-    // 总资产 = 现金 + 持仓市值
     const totalAssetsCNY = totalCashCNY + totalValueCNY;
     const totalPnL = totalValueCNY - totalCostBasis;
     const pnlPercent = totalCostBasis > 0 ? (totalPnL / totalCostBasis) * 100 : 0;
 
-    return {
-      totalValueCNY: totalAssetsCNY, // 总资产（现金+持仓）
-      totalInvestCNY: totalValueCNY, // 投资市值（仅持仓）
-      totalCashCNY,
-      totalPnL,
-      pnlPercent,
-    };
-  }, [accounts, positions]);
+    return { totalValueCNY: totalAssetsCNY, totalInvestCNY: totalValueCNY, totalCashCNY, totalPnL, pnlPercent };
+  }, [accounts, positions, fxRates]);
 
   // 计算收益率曲线数据
   const yieldCurveData = useMemo((): YieldDataPoint[] => {
@@ -236,42 +208,33 @@ export default function HomePage() {
   const assetAllocations = useMemo((): AssetAllocation[] => {
     const allocationMap = new Map<AssetType, { value: number }>();
 
-    // Initialize with all asset types
     (['stock', 'fund', 'bank_wealth_management', 'bank_cash'] as AssetType[]).forEach((type) => {
       allocationMap.set(type, { value: 0 });
     });
 
-    // Sum up values by asset type
     positions.forEach((position) => {
       const account = accounts.find((a) => a.id === position.accountId);
       if (!account) return;
 
-      // 优先使用持仓自己的币种，否则使用账户币种
-      const positionCurrency = position.currency || account.currency || 'CNY';
-      const rate = currencyRates[positionCurrency] ?? 1;
-      const value = position.currentPrice * position.quantity * rate;
+      const acctCcy = account.currency || 'CNY';
+      const posCcy  = getEffectiveCurrency(position.currency, acctCcy);
+      const value = convertToAccountCNY(position.currentPrice * position.quantity, posCcy, 'CNY', fxRates);
 
       const existing = allocationMap.get(position.assetType);
-      if (existing) {
-        existing.value += value;
-      }
+      if (existing) existing.value += value;
     });
 
     const totalValue = Array.from(allocationMap.values()).reduce((sum, a) => sum + a.value, 0);
 
     return Array.from(allocationMap.entries())
       .filter(([, data]) => data.value > 0)
-      .map(([type, data]) => {
-        const percentage = totalValue > 0 ? (data.value / totalValue) * 100 : 0;
-
-        return {
-          type,
-          name: ASSET_TYPE_CONFIG[type].label,
-          value: data.value,
-          percentage,
-        };
-      });
-  }, [accounts, positions]);
+      .map(([type, data]) => ({
+        type,
+        name: ASSET_TYPE_CONFIG[type].label,
+        value: data.value,
+        percentage: totalValue > 0 ? (data.value / totalValue) * 100 : 0,
+      }));
+  }, [accounts, positions, fxRates]);
 
   const pieData = assetAllocations.map((a) => ({
     name: a.name,
@@ -281,25 +244,19 @@ export default function HomePage() {
   const accountSummaries = useMemo(() => {
     return accounts.map((account) => {
       const accountPositions = positions.filter((p) => p.accountId === account.id);
-      const accountRate = currencyRates[account.currency] ?? 1;
+      const acctCcy = account.currency || 'CNY';
       let investValueCNY = 0;
 
-      // 计算账户持仓折算CNY（考虑持仓可能使用不同币种）
       accountPositions.forEach((p) => {
-        const positionCurrency = p.currency || account.currency || 'CNY';
-        const rate = currencyRates[positionCurrency] ?? 1;
-        investValueCNY += p.currentPrice * p.quantity * rate;
+        const posCcy = getEffectiveCurrency(p.currency, acctCcy);
+        investValueCNY += convertToAccountCNY(p.currentPrice * p.quantity, posCcy, 'CNY', fxRates);
       });
 
-      // 账户余额折算CNY（港币账户的余额也需要换算）
-      const balanceCNY = account.balance * accountRate;
-
-      // 账户总价值 = 余额 + 持仓价值（都折算为CNY）
+      // 现金折算：账户币种 ≠ CNY → 现汇卖出价
+      const balanceCNY = convertToAccountCNY(account.balance, acctCcy, 'CNY', fxRates);
       const valueCNY = balanceCNY + investValueCNY;
 
-      const percentage = totalStats.totalValueCNY > 0
-        ? (valueCNY / totalStats.totalValueCNY) * 100
-        : 0;
+      const percentage = totalStats.totalValueCNY > 0 ? (valueCNY / totalStats.totalValueCNY) * 100 : 0;
 
       return {
         id: account.id,
@@ -313,7 +270,7 @@ export default function HomePage() {
         percentage,
       };
     });
-  }, [accounts, positions, totalStats.totalValueCNY]);
+  }, [accounts, positions, totalStats.totalValueCNY, fxRates]);
 
   const hasData = accounts.length > 0 && positions.length > 0;
 

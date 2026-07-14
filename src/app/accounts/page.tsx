@@ -4,8 +4,8 @@ import { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { Account } from '@/types';
 import * as XLSX from 'xlsx';
-import { getExchangeRates } from '@/lib/exchangeRates';
-import { DEFAULT_EXCHANGE_RATES, type ExchangeRates } from '@/config/exchangeRates';
+import { useFxRates } from '@/lib/hooks/useFxRates';
+import { convertToAccountCNY, getEffectiveCurrency, inferCurrencyFromSymbol } from '@/lib/fx';
 import { formatCurrency } from '@/utils/format';
 
 const ACCOUNT_TYPES = [
@@ -31,16 +31,6 @@ const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
   other: '其他',
 };
 
-// 根据股票代码判断币种
-const getSymbolCurrency = (symbol: string): string => {
-  const upper = symbol.toUpperCase();
-  if (/^\d{5}$/.test(upper)) return 'HKD';
-  if (/^[0236]\d{5}$/.test(upper)) return 'CNY';
-  if (/^5\d{5}$/.test(upper)) return 'CNY';
-  if (/^[A-Z]{1,5}$/.test(upper)) return 'USD';
-  return 'CNY';
-};
-
 interface FormData {
   name: string;
   type: Account['type'];
@@ -48,7 +38,7 @@ interface FormData {
   currency: string;
   holder: string;
   balance: string;
-  accountId?: string; // For editing existing accounts
+  accountId?: string;
 }
 
 const initialFormData: FormData = {
@@ -62,13 +52,13 @@ const initialFormData: FormData = {
 
 export default function AccountsPage() {
   const { accounts, positions, addAccount, updateAccount, deleteAccount, addTransfer, transfers, exportData, importData } = useAppStore();
+  const { rates: fxRates } = useFxRates();
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
-  const [currencyRates, setCurrencyRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
   const [transferData, setTransferData] = useState({
     type: 'between_accounts' as 'between_accounts' | 'from_external' | 'to_external',
     fromAccountId: '',
@@ -81,11 +71,6 @@ export default function AccountsPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [expandedAccounts, setExpandedAccounts] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Fetch exchange rates on mount
-  useEffect(() => {
-    getExchangeRates().then(setCurrencyRates);
-  }, []);
 
   const handleTransfer = () => {
     const { type, fromAccountId, toAccountId, externalAccountName, amount } = transferData;
@@ -217,22 +202,20 @@ export default function AccountsPage() {
   const getAccountValue = (accountId: string) => {
     const accountPositions = positions.filter((p) => p.accountId === accountId);
     const account = accounts.find((a) => a.id === accountId);
-    const accountCurrency = account?.currency || 'CNY';
-    const accountRate = currencyRates[accountCurrency] ?? 1;
+    if (!account) return 0;
+    const acctCcy = account.currency || 'CNY';
 
     return accountPositions.reduce((sum, p) => {
-      // 优先使用持仓自己的币种，否则使用账户币种
-      const positionCurrency = p.currency || accountCurrency;
-      const rate = currencyRates[positionCurrency] ?? 1;
-      return sum + p.currentPrice * p.quantity * rate;
+      const posCcy = getEffectiveCurrency(p.currency, acctCcy);
+      return sum + convertToAccountCNY(p.currentPrice * p.quantity, posCcy, 'CNY', fxRates);
     }, 0);
   };
 
   const getAccountBalanceCNY = (accountId: string) => {
     const account = accounts.find((a) => a.id === accountId);
     if (!account) return 0;
-    const rate = currencyRates[account.currency] ?? 1;
-    return account.balance * rate;
+    const acctCcy = account.currency || 'CNY';
+    return convertToAccountCNY(account.balance, acctCcy, 'CNY', fxRates);
   };
 
   const getAccountBalanceNative = (accountId: string) => {
@@ -247,10 +230,9 @@ export default function AccountsPage() {
 
   const getPositionValueCNY = (position: { currency?: string; currentPrice: number; quantity: number; accountId: string }) => {
     const account = accounts.find((a) => a.id === position.accountId);
-    const accountCurrency = account?.currency || 'CNY';
-    const positionCurrency = position.currency || accountCurrency;
-    const rate = currencyRates[positionCurrency] ?? 1;
-    return position.currentPrice * position.quantity * rate;
+    const acctCcy = account?.currency || 'CNY';
+    const posCcy = getEffectiveCurrency(position.currency, acctCcy);
+    return convertToAccountCNY(position.currentPrice * position.quantity, posCcy, 'CNY', fxRates);
   };
 
   const getPositionValueNative = (position: { currency?: string; currentPrice: number; quantity: number; accountId: string }) => {
@@ -259,10 +241,9 @@ export default function AccountsPage() {
 
   const getPositionPnL = (position: { currency?: string; currentPrice: number; avgCost: number; quantity: number; accountId: string }) => {
     const account = accounts.find((a) => a.id === position.accountId);
-    const accountCurrency = account?.currency || 'CNY';
-    const positionCurrency = position.currency || accountCurrency;
-    const rate = currencyRates[positionCurrency] ?? 1;
-    const pnl = (position.currentPrice - position.avgCost) * position.quantity * rate;
+    const acctCcy = account?.currency || 'CNY';
+    const posCcy = getEffectiveCurrency(position.currency, acctCcy);
+    const pnl = convertToAccountCNY((position.currentPrice - position.avgCost) * position.quantity, posCcy, 'CNY', fxRates);
     const pnlPercent = position.avgCost > 0 ? ((position.currentPrice - position.avgCost) / position.avgCost) * 100 : 0;
     return { pnl, pnlPercent };
   };
@@ -522,9 +503,7 @@ export default function AccountsPage() {
   };
 
   const totalValueCNY = accounts.reduce((sum, acc) => {
-    const value = getAccountValue(acc.id);
-    const rate = currencyRates[acc.currency] ?? 1;
-    return sum + value * rate;
+    return sum + getAccountValue(acc.id);
   }, 0);
 
   const hkdTotal = accounts
@@ -784,7 +763,7 @@ export default function AccountsPage() {
                             const positionValueCNY = getPositionValueCNY(position);
                             const { pnl, pnlPercent } = getPositionPnL(position);
                             const pnlColor = pnl >= 0 ? 'text-red-500' : 'text-green-600';
-                            const positionCurrency = position.currency || getSymbolCurrency(position.symbol);
+                            const positionCurrency = position.currency || inferCurrencyFromSymbol(position.symbol);
                             const displayCurrency = positionCurrency === 'CNY' ? account.currency : positionCurrency;
 
                             return (

@@ -1,147 +1,99 @@
 /**
  * Exchange Rates API Route
- * Fetches real-time exchange rates from East Money
- * API: https://push2.eastmoney.com/api/qt/ulist.np/get
+ * Fetches bank forex sell rates from Sina Finance
+ * Sina returns: field[0]=time, [1]=buy, [2]=sell, [3]=cash-buy, [4]=cash-sell, [5]=bank-conversion, [6-8]=PBOC-mid
+ * We use field[2] (sell rate) — the rate banks sell foreign currency to you
  */
 
 import { NextResponse } from 'next/server';
-import { DEFAULT_EXCHANGE_RATES, type ExchangeRates } from '@/config/exchangeRates';
+import { DEFAULT_EXCHANGE_RATES } from '@/config/exchangeRates';
 
-// 从统一配置中构建默认值
-const DEFAULT_RATES: Record<string, number> = {
-  HKD: DEFAULT_EXCHANGE_RATES.HKD,
-  USD: DEFAULT_EXCHANGE_RATES.USD,
-  EUR: DEFAULT_EXCHANGE_RATES.EUR,
-  JPY: DEFAULT_EXCHANGE_RATES.JPY,
-  GBP: DEFAULT_EXCHANGE_RATES.GBP,
-};
+// Sina forex codes: fx_s{currency code lower}cny = foreign currency → CNY sell rate
+const SINA_CODES = [
+  { code: 'HKD', sina: 'fx_shkdcny' },
+  { code: 'USD', sina: 'fx_susdcny' },
+  { code: 'EUR', sina: 'fx_seurcny' },
+  { code: 'JPY', sina: 'fx_sjpycny' },
+  { code: 'GBP', sina: 'fx_sgbpcny' },
+] as const;
 
-interface ExchangeRate {
+interface RateResult {
   code: string;
-  name: string;
-  rate: number;  // Rate to CNY
+  rate: number;
   updateTime: string;
 }
 
-/**
- * Fetch exchange rates from East Money
- * Uses push2.eastmoney.com API for forex data
- * 
- * Note: East Money forex API returns rates in format where:
- * - f43 = current price (外汇买入价/卖出价中间价)
- * - The actual rate may need scaling
- */
-async function fetchExchangeRates(): Promise<ExchangeRate[]> {
-  const rates: ExchangeRate[] = [];
-
-  // East Money forex secids - 106 = forex market
-  const forexPairs = [
-    { code: 'USDCNY', name: '美元/人民币', secid: '106,USDCNY' },
-    { code: 'HKDCNY', name: '港币/人民币', secid: '106,HKDCNY' },
-    { code: 'EURCNY', name: '欧元/人民币', secid: '106,EURCNY' },
-    { code: 'JPYCNY', name: '日元/人民币', secid: '106,JPYCNY' },
-    { code: 'GBPCNY', name: '英镑/人民币', secid: '106,GBPCNY' },
-  ];
-
+async function fetchSinaRates(): Promise<RateResult[]> {
+  const sinaList = SINA_CODES.map(c => c.sina).join(',');
   try {
-    // Build secid list: market,code pairs
-    const secids = forexPairs.map(p => p.secid).join(',');
-    // Fields: f43=最新价, f57=代码, f58=名称, f60=昨收, f107=涨跌额, f169=涨跌幅
-    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&secids=${secids}&fields=f2,f3,f4,f6,f7,f8,f12,f14`;
-
-    const response = await fetch(url, {
-      headers: {
-        'Referer': 'https://quote.eastmoney.com',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      signal: AbortSignal.timeout(8000)
-    });
-
-    if (!response.ok) {
-      console.error('Exchange rate API returned:', response.status);
-    } else {
-      const data = await response.json();
-      
-      // Parse the response - East Money ulist API format
-      if (data?.data?.diff && Array.isArray(data.data.diff)) {
-        for (const item of data.data.diff) {
-          if (!item || !item.f12) continue;
-          
-          const code = item.f12; // e.g., "USDCNY"
-          const price = item.f2; // f2 = 最新价 in ulist API
-          
-          // Find the pair info
-          const pair = forexPairs.find(p => p.code === code);
-          if (!pair || !price || price === 0) continue;
-
-          // f2 is the actual exchange rate (no division needed)
-          // For HKD/CNY around 0.86, this should be the direct value
-          rates.push({
-            code,
-            name: pair.name,
-            rate: price,
-            updateTime: new Date().toISOString(),
-          });
-        }
+    const res = await fetch(
+      `https://hq.sinajs.cn/list=${sinaList}`,
+      {
+        headers: {
+          Referer: 'https://finance.sina.com.cn/',
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        },
+        signal: AbortSignal.timeout(8000),
       }
-      
-      // Fallback: try data array format
-      else if (data?.data && Array.isArray(data.data)) {
-        for (const item of data.data) {
-          if (!item || !item.f12) continue;
-          const code = item.f12;
-          const price = item.f2;
-          const pair = forexPairs.find(p => p.code === code);
-          if (pair && price && price > 0) {
-            rates.push({
-              code,
-              name: pair.name,
-              rate: price,
-              updateTime: new Date().toISOString(),
-            });
-          }
-        }
+    );
+
+    if (!res.ok) throw new Error(`Sina HTTP ${res.status}`);
+
+    const text = await res.text();
+    const results: RateResult[] = [];
+
+    // Parse: var hq_str_fx_shkdcny="02:56:32,6.7709000000,6.7994000000,...";
+    const lines = text.trim().split('\n');
+
+    for (const line of lines) {
+      const match = line.match(/hq_str_fx_s(\w+)cny="([^"]+)"/);
+      if (!match) continue;
+
+      const rawCode = match[1].toUpperCase(); // e.g. "HKDC" from "fx_shkdcny"
+      const currencyMap: Record<string, string> = {
+        HKD: 'HKD',
+        USD: 'USD',
+        EUR: 'EUR',
+        JPY: 'JPY',
+        GBP: 'GBP',
+      };
+      const code = currencyMap[rawCode];
+      if (!code) continue;
+
+      const fields = match[2].split(',');
+      // field[0]=time, [1]=buy, [2]=sell(现汇卖出价), [3]=cash-buy, [4]=cash-sell
+      const sellRate = parseFloat(fields[2]);
+      if (!isNaN(sellRate) && sellRate > 0) {
+        results.push({
+          code,
+          rate: sellRate,
+          updateTime: fields[0] || new Date().toISOString(),
+        });
       }
     }
+
+    return results;
   } catch (error) {
-    console.error('Failed to fetch exchange rates from East Money:', error);
+    console.error('[rates] Sina fetch failed:', error);
+    return [];
   }
-
-  // If we couldn't fetch any rates, return defaults
-  if (rates.length === 0) {
-    console.warn('Using default exchange rates');
-    return Object.entries(DEFAULT_RATES).map(([code, rate]) => ({
-      code: code + 'CNY',
-      name: getCurrencyName(code),
-      rate,
-      updateTime: new Date().toISOString(),
-    }));
-  }
-
-  return rates;
-}
-
-function getCurrencyName(code: string): string {
-  const names: Record<string, string> = {
-    HKD: '港币/人民币',
-    USD: '美元/人民币',
-    EUR: '欧元/人民币',
-    JPY: '日元/人民币',
-    GBP: '英镑/人民币',
-  };
-  return names[code] || code;
 }
 
 export async function GET() {
-  const rates = await fetchExchangeRates();
+  const rates = await fetchSinaRates();
 
-  // Convert to a simple key-value map for easy consumption
-  // Key: currency code (HKD, USD, etc.), Value: 1 unit = X CNY
+  // Build rateMap: 1 unit foreign = X CNY
   const rateMap: Record<string, number> = {};
   for (const r of rates) {
-    // Extract currency code (e.g., "USD" from "USDCNY")
-    const currency = r.code.replace('CNY', '');
-    rateMap[currency] = r.rate;
+    rateMap[r.code] = r.rate;
+  }
+
+  // Fallback to defaults for any missing currencies
+  const allCurrencies = ['HKD', 'USD', 'EUR', 'JPY', 'GBP'] as const;
+  for (const ccy of allCurrencies) {
+    if (!rateMap[ccy]) {
+      rateMap[ccy] = (DEFAULT_EXCHANGE_RATES as Record<string, number>)[ccy] ?? 1;
+    }
   }
 
   return NextResponse.json({
@@ -149,5 +101,6 @@ export async function GET() {
     rates,
     rateMap,
     timestamp: new Date().toISOString(),
+    source: 'sina_forex_sell',
   });
 }

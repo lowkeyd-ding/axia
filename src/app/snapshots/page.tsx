@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import {
   XAxis,
   YAxis,
@@ -12,8 +12,8 @@ import {
 } from 'recharts';
 import { useAppStore } from '@/lib/store';
 import { ASSET_TYPE_CONFIG, type AssetType, type Snapshot, type PositionValue } from '@/types';
-import { getExchangeRates } from '@/lib/exchangeRates';
-import { DEFAULT_EXCHANGE_RATES, type ExchangeRates } from '@/config/exchangeRates';
+import { useFxRates } from '@/lib/hooks/useFxRates';
+import { convertToAccountCNY, getEffectiveCurrency } from '@/lib/fx';
 import { formatCurrency, formatPercent } from '@/utils/format';
 
 interface FormData {
@@ -23,19 +23,14 @@ interface FormData {
 
 export default function SnapshotsPage() {
   const { snapshots, accounts, positions, addSnapshot, deleteSnapshot } = useAppStore();
+  const { rates: fxRates } = useFxRates();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedSnapshot, setSelectedSnapshot] = useState<Snapshot | null>(null);
   const [compareSnapshot, setCompareSnapshot] = useState<Snapshot | null>(null);
-  const [currencyRates, setCurrencyRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
   const [formData, setFormData] = useState<FormData>({
     date: new Date().toISOString().slice(0, 10),
     note: '',
   });
-
-  // Fetch exchange rates on mount
-  useEffect(() => {
-    getExchangeRates().then(setCurrencyRates);
-  }, []);
 
   // Calculate current portfolio value
   const currentStats = useMemo(() => {
@@ -44,17 +39,17 @@ export default function SnapshotsPage() {
     let totalInvestments = 0;
 
     accounts.forEach((account) => {
-      const rate = currencyRates[account.currency] ?? 1;
-      totalCash += account.balance * rate;
+      const acctCcy = account.currency || 'CNY';
+      const cashCNY = convertToAccountCNY(account.balance, acctCcy, 'CNY', fxRates);
+      totalCash += cashCNY;
 
       const accountPositions = positions.filter((p) => p.accountId === account.id);
       const investValue = accountPositions.reduce((sum, p) => {
-        const positionCurrency = p.currency || account.currency || 'CNY';
-        const posRate = currencyRates[positionCurrency] ?? 1;
-        return sum + p.currentPrice * p.quantity * posRate;
+        const posCcy = getEffectiveCurrency(p.currency, acctCcy);
+        return sum + convertToAccountCNY(p.currentPrice * p.quantity, posCcy, 'CNY', fxRates);
       }, 0);
       totalInvestments += investValue;
-      totalValue += (account.balance + investValue) * rate;
+      totalValue += cashCNY + investValue;
     });
 
     // Calculate change from first snapshot
@@ -80,9 +75,9 @@ export default function SnapshotsPage() {
     positions.forEach((position) => {
       const account = accounts.find((a) => a.id === position.accountId);
       if (!account) return;
-      const positionCurrency = position.currency || account.currency || 'CNY';
-      const rate = currencyRates[positionCurrency] ?? 1;
-      const value = position.currentPrice * position.quantity * rate;
+      const acctCcy = account.currency || 'CNY';
+      const posCcy = getEffectiveCurrency(position.currency, acctCcy);
+      const value = convertToAccountCNY(position.currentPrice * position.quantity, posCcy, 'CNY', fxRates);
       allocationMap.set(position.assetType, (allocationMap.get(position.assetType) || 0) + value);
     });
 
@@ -96,19 +91,19 @@ export default function SnapshotsPage() {
 
     // Account values
     const accountValues = accounts.map((account) => {
-      const rate = currencyRates[account.currency] ?? 1;
+      const acctCcy = account.currency || 'CNY';
       const accountPositions = positions.filter((p) => p.accountId === account.id);
       const investValue = accountPositions.reduce((sum, p) => {
-        const positionCurrency = p.currency || account.currency || 'CNY';
-        const posRate = currencyRates[positionCurrency] ?? 1;
-        return sum + p.currentPrice * p.quantity * posRate;
+        const posCcy = getEffectiveCurrency(p.currency, acctCcy);
+        return sum + convertToAccountCNY(p.currentPrice * p.quantity, posCcy, 'CNY', fxRates);
       }, 0);
+      const cashCNY = convertToAccountCNY(account.balance, acctCcy, 'CNY', fxRates);
       return {
         accountId: account.id,
         accountName: account.name,
         currency: account.currency,
-        value: (account.balance + investValue) * rate,
-        cash: account.balance * rate,
+        value: cashCNY + investValue,
+        cash: cashCNY,
         investments: investValue,
       };
     });
@@ -116,10 +111,10 @@ export default function SnapshotsPage() {
     // Position values
     const positionValues: PositionValue[] = positions.map((position) => {
       const account = accounts.find((a) => a.id === position.accountId);
-      const positionCurrency = position.currency || account?.currency || 'CNY';
-      const rate = currencyRates[positionCurrency] ?? 1;
-      const value = position.currentPrice * position.quantity * rate;
-      const costBasis = position.avgCost * position.quantity * rate;
+      const acctCcy = account?.currency || 'CNY';
+      const posCcy = getEffectiveCurrency(position.currency, acctCcy);
+      const value = convertToAccountCNY(position.currentPrice * position.quantity, posCcy, 'CNY', fxRates);
+      const costBasis = convertToAccountCNY(position.avgCost * position.quantity, posCcy, 'CNY', fxRates);
       const pnl = value - costBasis;
       const pnlPercent = costBasis > 0 ? ((value - costBasis) / costBasis) * 100 : 0;
       return {
@@ -128,8 +123,8 @@ export default function SnapshotsPage() {
         name: position.name,
         assetType: position.assetType,
         quantity: position.quantity,
-        avgCost: position.avgCost * rate,
-        currentPrice: position.currentPrice * rate,
+        avgCost: position.avgCost,
+        currentPrice: position.currentPrice,
         value,
         pnl,
         pnlPercent,

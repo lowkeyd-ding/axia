@@ -13,10 +13,10 @@ export interface ExchangeRates {
   [key: string]: number;
 }
 
-// 汇率默认值：1 单位外币 = X 人民币
+// 汇率默认值：1 单位外币 = X 人民币（现汇卖出价，银行卖外汇给你时的汇率）
 export const DEFAULT_EXCHANGE_RATES: ExchangeRates = {
   CNY: 1,
-  HKD: 0.8637,  // 用户确认值
+  HKD: 0.8652,  // HKD 现汇卖出价（约值）
   USD: 7.24,
   EUR: 7.85,
   JPY: 0.048,
