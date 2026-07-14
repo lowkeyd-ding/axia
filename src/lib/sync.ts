@@ -50,20 +50,18 @@ export async function syncToCloud(data: CloudSyncData): Promise<boolean> {
       return false;
     }
 
-    const { error } = await authed.client.from('axia_data').upsert({
-      user_id: authed.userId,
-      data,
-      updated_at: new Date().toISOString(),
-    });
-
-    if (error) {
-      console.error('[CloudSync] Sync error:', error);
-      return false;
-    }
-    console.log('[CloudSync] Data synced to cloud successfully');
-    return true;
+    return await upsertCloudData(authed.userId, data);
   } catch (error) {
     console.error('[CloudSync] Failed to sync to cloud:', error);
+    return false;
+  }
+}
+
+export async function syncToCloudForUser(data: CloudSyncData, userId: string): Promise<boolean> {
+  try {
+    return await upsertCloudData(userId, data);
+  } catch (error) {
+    console.error('[CloudSync] Failed to sync to cloud for user:', error);
     return false;
   }
 }
@@ -96,4 +94,30 @@ export async function loadFromCloud(): Promise<CloudSyncData | null> {
     console.error('[CloudSync] Failed to load from cloud:', error);
     return null;
   }
+}
+
+async function upsertCloudData(userId: string, data: CloudSyncData): Promise<boolean> {
+  const config = getSupabaseConfig();
+  if (!config) {
+    console.log('[CloudSync] Missing Supabase config, skipping upsert');
+    return false;
+  }
+
+  const client = createClient(config.url, config.anonKey, {
+    auth: { persistSession: true, autoRefreshToken: true },
+  });
+
+  const { error } = await client.from('axia_data').upsert({
+    user_id: userId,
+    data,
+    updated_at: new Date().toISOString(),
+  });
+
+  if (error) {
+    console.error('[CloudSync] Upsert error:', error);
+    return false;
+  }
+
+  console.log('[CloudSync] Data synced to cloud successfully');
+  return true;
 }
