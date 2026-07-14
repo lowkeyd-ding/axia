@@ -95,6 +95,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     const supabase = createClient();
+    const { forceSyncNow } = useAppStore.getState();
+    try {
+      await forceSyncNow();
+    } catch {
+      // 同步失败也不阻塞登出
+    }
     await supabase.auth.signOut();
     resetAll();
     router.push('/signin');
