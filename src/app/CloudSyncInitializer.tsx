@@ -22,6 +22,7 @@ export function CloudSyncInitializer() {
 
   useEffect(() => {
     if (isAuthPage) {
+      setLastLoadedUserId(null);
       setIsReady(true);
       return;
     }
@@ -29,8 +30,9 @@ export function CloudSyncInitializer() {
     // 必须等 Supabase 鉴权结束
     if (isAuthLoading) return;
 
-    // 未登录：不拉取，但标记 ready 让 UI 显示
+    // 未登录：重置用户缓存，避免再次登录时跳过云端读取
     if (!user) {
+      setLastLoadedUserId(null);
       setIsReady(true);
       return;
     }
