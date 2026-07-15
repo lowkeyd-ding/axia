@@ -299,14 +299,14 @@ async function fetchHKFromEastMoney(symbol: string): Promise<PriceData | null> {
     const info = data?.data;
     if (!info || !info.f43) return null;
 
-    const price = info.f43 / 100;
-    const prevClose = info.f60 ? info.f60 / 100 : 0;
+    const price = info.f43 / 1000;
+    const prevClose = info.f60 ? info.f60 / 1000 : 0;
     const change = price - prevClose;
     const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
 
     return {
       symbol, name: info.f58 || symbol, price, change, changePercent, prevClose,
-      open: info.f46 / 100, high: info.f44 / 100, low: info.f45 / 100, volume: info.f47 / 100,
+      open: info.f46 / 1000, high: info.f44 / 1000, low: info.f45 / 1000, volume: info.f47,
       timestamp: new Date().toISOString(), source: 'realtime', exchange: 'HK'
     };
   } catch {
