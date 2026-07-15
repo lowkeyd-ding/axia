@@ -255,11 +255,11 @@ async function fetchFundFromEastMoney(symbol: string): Promise<PriceData | null>
     const info = data?.data;
     if (!info || !info.f43) return null;
 
-    const price = info.f43 / 100;
-    const prevClose = info.f60 ? info.f60 / 100 : price;
-    const high = info.f44 ? info.f44 / 100 : price;
-    const low = info.f45 ? info.f45 / 100 : price;
-    const open = info.f46 ? info.f46 / 100 : price;
+    const price = info.f43 / 1000;
+    const prevClose = info.f60 ? info.f60 / 1000 : price;
+    const high = info.f44 ? info.f44 / 1000 : price;
+    const low = info.f45 ? info.f45 / 1000 : price;
+    const open = info.f46 ? info.f46 / 1000 : price;
 
     if (!price || price === 0) return null;
 

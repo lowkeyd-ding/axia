@@ -57,3 +57,32 @@ describe('externalPriceApi - HK East Money divisor', () => {
     expect(result?.price).toBeCloseTo(368.0, 2);
   });
 });
+
+describe('externalPriceApi - Fund East Money divisor', () => {
+  it('parses fund prices from East Money response without 10x inflation', async () => {
+    global.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: {
+              f43: 58970,
+              f44: 59100,
+              f45: 58600,
+              f46: 58800,
+              f47: 123456,
+              f58: '华夏凯德消费REIT',
+              f60: 58700,
+            },
+          }),
+      } as Response)
+    );
+
+    const result = await fetchSymbol('508091');
+    expect(result?.symbol).toBe('508091');
+    expect(result?.price).toBeCloseTo(58.97, 2);
+    expect(result?.high).toBeCloseTo(59.10, 2);
+    expect(result?.low).toBeCloseTo(58.60, 2);
+    expect(result?.prevClose).toBeCloseTo(58.70, 2);
+  });
+});
