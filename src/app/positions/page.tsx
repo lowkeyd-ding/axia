@@ -10,9 +10,8 @@ import type { Position, Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
 import { formatCurrency, formatPercent } from '@/utils/format';
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
-import { usePnLStats, computePositionPnL } from '@/lib/hooks/usePnLStats';
+import { usePnLStats, computePositionPnLRaw } from '@/lib/hooks/usePnLStats';
 import { useFxRates } from '@/lib/hooks/useFxRates';
-import type { FxRates } from '@/lib/fx';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
   bank: '银行',
@@ -50,15 +49,24 @@ const initialFormData: FormData = {
 function PositionsPageContent() {
   const { positions, accounts, addPosition, updatePosition } = useAppStore();
   const pnlStats = usePnLStats();
-  const { rates: fxRates } = useFxRates();
   const searchParams = useSearchParams();
-
-  // Period P&L per position (pure function, no hooks inside)
-  const getPeriodPnL = (positionId: string) => {
-    const { snapshots, positions: allPos } = useAppStore.getState();
-    return computePositionPnL(positionId, snapshots, allPos, fxRates as FxRates);
-  };
   const filterAccountId = searchParams.get('account');
+
+  // Pre-compute period P&L for each position (pure function, no hooks)
+  const { rates: fxRates } = useFxRates();
+  const periodPnLMap = useMemo(() => {
+    const result = new Map<string, { daily: number; monthly: number; yearly: number }>();
+    positions.forEach((pos) => {
+      const pnl = computePositionPnLRaw(pos, accounts, fxRates);
+      result.set(pos.id, {
+        daily: pnl.daily.change,
+        monthly: pnl.monthly.change,
+        yearly: pnl.yearly.change,
+      });
+    });
+    return result;
+  }, [positions, accounts, fxRates]);
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -473,7 +481,7 @@ function PositionsPageContent() {
               const assetConfig = ASSET_TYPE_CONFIG[position.assetType];
               const pnlColor = getPnLColor(pnlAmount);
               const isRefreshing = refreshingSymbols.has(position.symbol);
-              const periodPnL = getPeriodPnL(position.id);
+              const periodPnL = periodPnLMap.get(position.id) ?? { daily: 0, monthly: 0, yearly: 0 };
 
               return (
                 <div

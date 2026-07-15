@@ -5,10 +5,9 @@ import { useAppStore } from '@/lib/store';
 import type { Account } from '@/types';
 import * as XLSX from 'xlsx';
 import { useFxRates } from '@/lib/hooks/useFxRates';
-import { useAccountPnLStats } from '@/lib/hooks/usePnLStats';
+import { useAccountPnLStats, computeAccountPnLRaw, type PnLStats } from '@/lib/hooks/usePnLStats';
 import { convertToAccountCNY, getEffectiveCurrency, inferCurrencyFromSymbol } from '@/lib/fx';
-import { formatCurrency, formatPercent } from '@/utils/format';
-import { computeAccountPnL } from '@/lib/hooks/usePnLStats';
+import { formatCurrency } from '@/utils/format';
 import type { FxRates } from '@/lib/fx';
 
 const ACCOUNT_TYPES = [
@@ -54,17 +53,17 @@ const initialFormData: FormData = {
 };
 
 export default function AccountsPage() {
-  const { accounts, positions, addAccount, updateAccount, deleteAccount, addTransfer, transfers, exportData, importData, snapshots } = useAppStore();
+  const { accounts, positions, addAccount, updateAccount, deleteAccount, addTransfer, transfers, exportData, importData } = useAppStore();
   const { rates: fxRates } = useFxRates();
 
   // Compute account P&L stats (pure function, no hooks inside map)
   const accountPnLMap = useMemo(() => {
-    const result = new Map<string, ReturnType<typeof computeAccountPnL>>();
+    const result = new Map<string, PnLStats>();
     accounts.forEach((account) => {
-      result.set(account.id, computeAccountPnL(account.id, snapshots, accounts, positions, fxRates as FxRates));
+      result.set(account.id, computeAccountPnLRaw(account.id, positions, accounts, fxRates as FxRates));
     });
     return result;
-  }, [accounts, snapshots, positions, fxRates]);
+  }, [accounts, positions, fxRates]);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);

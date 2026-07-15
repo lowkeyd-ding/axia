@@ -25,6 +25,14 @@ export interface Position {
   avgCost: number;
   currentPrice: number;
   currency?: string; // 持仓币种，如果不填则使用账户币种
+  // Period open price snapshots for real-time P&L calculation
+  // These are optional in input but always populated in stored data
+  dailyOpenPrice?: number;
+  monthlyOpenPrice?: number;
+  yearlyOpenPrice?: number;
+  dailyOpenDate?: string;
+  monthlyOpenDate?: string;
+  yearlyOpenDate?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -66,6 +66,63 @@ function roundCurrency(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+// Snapshot helpers — check if date boundaries have changed
+function todayDate(): string {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+}
+function todayMonth(): string {
+  return new Date().toISOString().slice(0, 7); // YYYY-MM
+}
+function todayYear(): string {
+  return new Date().getFullYear().toString(); // YYYY
+}
+
+function snapshotNeedsUpdate(
+  pos: Position,
+  price: number,
+  roundP: (v: number) => number
+): Partial<Position> {
+  const today = todayDate();
+  const month = todayMonth();
+  const year = todayYear();
+  const updates: Partial<Position> = {};
+
+  // Daily: date changed → snapshot today's open price
+  if (pos.dailyOpenDate !== today) {
+    updates.dailyOpenPrice = roundP(price);
+    updates.dailyOpenDate = today;
+  }
+  // Monthly: month changed → snapshot this month's open price
+  if (pos.monthlyOpenDate !== month) {
+    updates.monthlyOpenPrice = roundP(price);
+    updates.monthlyOpenDate = month;
+  }
+  // Yearly: year changed → snapshot this year's open price
+  if (pos.yearlyOpenDate !== year) {
+    updates.yearlyOpenPrice = roundP(price);
+    updates.yearlyOpenDate = year;
+  }
+  return updates;
+}
+
+// Initialize snapshot fields for existing positions (backward compatibility)
+function initSnapshotFields(pos: Position, price: number, roundP: (v: number) => number): Partial<Position> {
+  const updates: Partial<Position> = {};
+  if (pos.dailyOpenPrice === undefined) {
+    updates.dailyOpenPrice = roundP(price);
+    updates.dailyOpenDate = todayDate();
+  }
+  if (pos.monthlyOpenPrice === undefined) {
+    updates.monthlyOpenPrice = roundP(price);
+    updates.monthlyOpenDate = todayMonth();
+  }
+  if (pos.yearlyOpenPrice === undefined) {
+    updates.yearlyOpenPrice = roundP(price);
+    updates.yearlyOpenDate = todayYear();
+  }
+  return updates;
+}
+
 // 延迟同步到云端（防抖）
 async function scheduleCloudSync() {
   if (syncTimer) {
@@ -288,12 +345,24 @@ export const useAppStore = create<AppState>()(
 
   // Position actions
   addPosition: (positionData) => {
+    const now = new Date();
+    const date = now.toISOString().slice(0, 10);
+    const month = now.toISOString().slice(0, 7);
+    const year = now.getFullYear().toString();
+    const price = roundPrice(positionData.currentPrice);
+
     const newPosition: Position = {
       ...positionData,
       id: uuidv4(),
       quantity: roundQuantity(positionData.quantity),
       avgCost: roundPrice(positionData.avgCost),
-      currentPrice: roundPrice(positionData.currentPrice),
+      currentPrice: price,
+      dailyOpenPrice: price,
+      monthlyOpenPrice: price,
+      yearlyOpenPrice: price,
+      dailyOpenDate: date,
+      monthlyOpenDate: month,
+      yearlyOpenDate: year,
       createdAt: getNow(),
       updatedAt: getNow(),
     };
@@ -320,6 +389,22 @@ export const useAppStore = create<AppState>()(
     if (updates.quantity !== undefined) {
       roundedUpdates.quantity = roundQuantity(updates.quantity);
     }
+
+    // Auto-update period snapshots when currentPrice changes
+    if (updates.currentPrice !== undefined) {
+      const snap = snapshotNeedsUpdate(position, updates.currentPrice, roundPrice);
+      Object.assign(roundedUpdates, snap);
+      // Backward compat: init missing snapshot fields from current price
+      if (!position.dailyOpenPrice) {
+        const init = initSnapshotFields(position, position.currentPrice, roundPrice);
+        Object.assign(roundedUpdates, init);
+      }
+    } else if (!position.dailyOpenPrice) {
+      // No price update but still need to init snapshots (e.g. on first refresh)
+      const init = initSnapshotFields(position, position.currentPrice, roundPrice);
+      Object.assign(roundedUpdates, init);
+    }
+
     const updatedPosition: Position = {
       ...position,
       ...updates,
@@ -495,6 +580,8 @@ export const useAppStore = create<AppState>()(
           updatedPosition = updated;
         } else {
           // Create new position
+          const price = roundPrice(tradeData.price);
+          const now = new Date();
           const newPos: Position = {
             id: uuidv4(),
             accountId: tradeData.accountId,
@@ -502,8 +589,14 @@ export const useAppStore = create<AppState>()(
             symbol: tradeData.symbol,
             name: tradeData.name,
             quantity: roundQuantity(tradeData.quantity),
-            avgCost: roundPrice(tradeData.price),
-            currentPrice: roundPrice(tradeData.price),
+            avgCost: price,
+            currentPrice: price,
+            dailyOpenPrice: price,
+            monthlyOpenPrice: price,
+            yearlyOpenPrice: price,
+            dailyOpenDate: now.toISOString().slice(0, 10),
+            monthlyOpenDate: now.toISOString().slice(0, 7),
+            yearlyOpenDate: now.getFullYear().toString(),
             createdAt: getNow(),
             updatedAt: getNow(),
           };
