@@ -28,22 +28,22 @@ export interface PnLStats {
 
 // Compute P&L for a single position (returns flat numbers, no FX)
 function computePositionPnL(
-  pos: { currentPrice: number; dailyOpenPrice?: number; monthlyOpenPrice?: number; yearlyOpenPrice?: number; quantity: number; avgCost: number }
+  pos: { currentPrice: number; dailyBasePrice?: number; monthlyBasePrice?: number; yearlyBasePrice?: number; quantity: number; avgCost: number }
 ): { daily: number; monthly: number; yearly: number; dailyPercent: number; monthlyPercent: number; yearlyPercent: number } {
-  const daily = pos.dailyOpenPrice != null
-    ? (pos.currentPrice - pos.dailyOpenPrice) * pos.quantity
+  const daily = pos.dailyBasePrice != null
+    ? (pos.currentPrice - pos.dailyBasePrice) * pos.quantity
     : 0;
-  const monthly = pos.monthlyOpenPrice != null
-    ? (pos.currentPrice - pos.monthlyOpenPrice) * pos.quantity
+  const monthly = pos.monthlyBasePrice != null
+    ? (pos.currentPrice - pos.monthlyBasePrice) * pos.quantity
     : 0;
-  const yearly = pos.yearlyOpenPrice != null
-    ? (pos.currentPrice - pos.yearlyOpenPrice) * pos.quantity
+  const yearly = pos.yearlyBasePrice != null
+    ? (pos.currentPrice - pos.yearlyBasePrice) * pos.quantity
     : 0;
 
-  // Percent vs open price
-  const dailyPercent = pos.dailyOpenPrice ? ((pos.currentPrice - pos.dailyOpenPrice) / pos.dailyOpenPrice) * 100 : 0;
-  const monthlyPercent = pos.monthlyOpenPrice ? ((pos.currentPrice - pos.monthlyOpenPrice) / pos.monthlyOpenPrice) * 100 : 0;
-  const yearlyPercent = pos.yearlyOpenPrice ? ((pos.currentPrice - pos.yearlyOpenPrice) / pos.yearlyOpenPrice) * 100 : 0;
+  // Percent vs baseline price
+  const dailyPercent = pos.dailyBasePrice ? ((pos.currentPrice - pos.dailyBasePrice) / pos.dailyBasePrice) * 100 : 0;
+  const monthlyPercent = pos.monthlyBasePrice ? ((pos.currentPrice - pos.monthlyBasePrice) / pos.monthlyBasePrice) * 100 : 0;
+  const yearlyPercent = pos.yearlyBasePrice ? ((pos.currentPrice - pos.yearlyBasePrice) / pos.yearlyBasePrice) * 100 : 0;
 
   return { daily, monthly, yearly, dailyPercent, monthlyPercent, yearlyPercent };
 }
@@ -51,7 +51,7 @@ function computePositionPnL(
 // Aggregate P&L across positions (with FX conversion)
 function aggregatePnL(
   positions: { currentPrice: number; avgCost: number; quantity: number; accountId: string; currency?: string;
-    dailyOpenPrice?: number; monthlyOpenPrice?: number; yearlyOpenPrice?: number }[],
+    dailyBasePrice?: number; monthlyBasePrice?: number; yearlyBasePrice?: number }[],
   accounts: { id: string; currency: string }[],
   fxRates: FxRates
 ) {
@@ -63,32 +63,31 @@ function aggregatePnL(
     const acctCcy = account?.currency || 'CNY';
     const posCcy = getEffectiveCurrency(pos.currency, acctCcy);
 
-    // Value and cost in CNY
+    // Current total value in CNY
     const curValue = convertToAccountCNY(pos.currentPrice * pos.quantity, posCcy, 'CNY', fxRates);
-    const cost = convertToAccountCNY(pos.avgCost * pos.quantity, posCcy, 'CNY', fxRates);
     dailyBase += curValue;
     monthlyBase += curValue;
     yearlyBase += curValue;
 
-    // Period open values
-    const dailyOpen = pos.dailyOpenPrice != null
-      ? convertToAccountCNY(pos.dailyOpenPrice * pos.quantity, posCcy, 'CNY', fxRates)
+    // Baseline values in CNY
+    const dailyBaseVal = pos.dailyBasePrice != null
+      ? convertToAccountCNY(pos.dailyBasePrice * pos.quantity, posCcy, 'CNY', fxRates)
       : curValue;
-    const monthlyOpen = pos.monthlyOpenPrice != null
-      ? convertToAccountCNY(pos.monthlyOpenPrice * pos.quantity, posCcy, 'CNY', fxRates)
+    const monthlyBaseVal = pos.monthlyBasePrice != null
+      ? convertToAccountCNY(pos.monthlyBasePrice * pos.quantity, posCcy, 'CNY', fxRates)
       : curValue;
-    const yearlyOpen = pos.yearlyOpenPrice != null
-      ? convertToAccountCNY(pos.yearlyOpenPrice * pos.quantity, posCcy, 'CNY', fxRates)
+    const yearlyBaseVal = pos.yearlyBasePrice != null
+      ? convertToAccountCNY(pos.yearlyBasePrice * pos.quantity, posCcy, 'CNY', fxRates)
       : curValue;
 
-    dailyCNY += dailyOpen;
-    monthlyCNY += monthlyOpen;
-    yearlyCNY += yearlyOpen;
+    dailyCNY += dailyBaseVal;
+    monthlyCNY += monthlyBaseVal;
+    yearlyCNY += yearlyBaseVal;
   }
 
-  const calcChange = (current: number, open: number): PeriodPnL => {
-    const change = current - open;
-    const percent = open > 0 ? (change / open) * 100 : 0;
+  const calcChange = (current: number, baseVal: number): PeriodPnL => {
+    const change = current - baseVal;
+    const percent = baseVal > 0 ? (change / baseVal) * 100 : 0;
     return { change, changePercent: percent };
   };
 
@@ -145,7 +144,7 @@ export function useAccountPnLStats(accountId: string): PnLStats {
 /** Pure P&L for a single position (no FX) */
 export function computePositionPnLRaw(
   pos: { currentPrice: number; avgCost: number; quantity: number; accountId: string; currency?: string;
-    dailyOpenPrice?: number; monthlyOpenPrice?: number; yearlyOpenPrice?: number },
+    dailyBasePrice?: number; monthlyBasePrice?: number; yearlyBasePrice?: number },
   accounts: { id: string; currency: string }[],
   fxRates: FxRates
 ): PnLStats {
@@ -153,19 +152,19 @@ export function computePositionPnLRaw(
   const acctCcy = account?.currency || 'CNY';
   const posCcy = getEffectiveCurrency(pos.currency, acctCcy);
 
-  const daily = pos.dailyOpenPrice != null
-    ? convertToAccountCNY((pos.currentPrice - pos.dailyOpenPrice) * pos.quantity, posCcy, 'CNY', fxRates)
+  const daily = pos.dailyBasePrice != null
+    ? convertToAccountCNY((pos.currentPrice - pos.dailyBasePrice) * pos.quantity, posCcy, 'CNY', fxRates)
     : 0;
-  const monthly = pos.monthlyOpenPrice != null
-    ? convertToAccountCNY((pos.currentPrice - pos.monthlyOpenPrice) * pos.quantity, posCcy, 'CNY', fxRates)
+  const monthly = pos.monthlyBasePrice != null
+    ? convertToAccountCNY((pos.currentPrice - pos.monthlyBasePrice) * pos.quantity, posCcy, 'CNY', fxRates)
     : 0;
-  const yearly = pos.yearlyOpenPrice != null
-    ? convertToAccountCNY((pos.currentPrice - pos.yearlyOpenPrice) * pos.quantity, posCcy, 'CNY', fxRates)
+  const yearly = pos.yearlyBasePrice != null
+    ? convertToAccountCNY((pos.currentPrice - pos.yearlyBasePrice) * pos.quantity, posCcy, 'CNY', fxRates)
     : 0;
 
-  const dailyPercent = pos.dailyOpenPrice ? ((pos.currentPrice - pos.dailyOpenPrice) / pos.dailyOpenPrice) * 100 : 0;
-  const monthlyPercent = pos.monthlyOpenPrice ? ((pos.currentPrice - pos.monthlyOpenPrice) / pos.monthlyOpenPrice) * 100 : 0;
-  const yearlyPercent = pos.yearlyOpenPrice ? ((pos.currentPrice - pos.yearlyOpenPrice) / pos.yearlyOpenPrice) * 100 : 0;
+  const dailyPercent = pos.dailyBasePrice ? ((pos.currentPrice - pos.dailyBasePrice) / pos.dailyBasePrice) * 100 : 0;
+  const monthlyPercent = pos.monthlyBasePrice ? ((pos.currentPrice - pos.monthlyBasePrice) / pos.monthlyBasePrice) * 100 : 0;
+  const yearlyPercent = pos.yearlyBasePrice ? ((pos.currentPrice - pos.yearlyBasePrice) / pos.yearlyBasePrice) * 100 : 0;
 
   return {
     daily: { change: daily, changePercent: dailyPercent },
@@ -178,7 +177,7 @@ export function computePositionPnLRaw(
 export function computeAccountPnLRaw(
   accountId: string,
   positions: { currentPrice: number; avgCost: number; quantity: number; accountId: string; currency?: string;
-    dailyOpenPrice?: number; monthlyOpenPrice?: number; yearlyOpenPrice?: number }[],
+    dailyBasePrice?: number; monthlyBasePrice?: number; yearlyBasePrice?: number }[],
   accounts: { id: string; currency: string }[],
   fxRates: FxRates
 ): PnLStats {

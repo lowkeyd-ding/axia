@@ -25,14 +25,13 @@ export interface Position {
   avgCost: number;
   currentPrice: number;
   currency?: string; // 持仓币种，如果不填则使用账户币种
-  // Period open price snapshots for real-time P&L calculation
-  // These are optional in input but always populated in stored data
-  dailyOpenPrice?: number;
-  monthlyOpenPrice?: number;
-  yearlyOpenPrice?: number;
-  dailyOpenDate?: string;
-  monthlyOpenDate?: string;
-  yearlyOpenDate?: string;
+  // Period baseline prices for P&L calculation — captured ONCE when period changes, then locked
+  dailyBasePrice?: number;     // 今日基准价，写入后当日不再变化
+  monthlyBasePrice?: number;   // 本月基准价，写入后当月不再变化
+  yearlyBasePrice?: number;    // 本年基准价，写入后本年不再变化
+  dailyBaseDate?: string;      // 今日基准日期 YYYY-MM-DD（等于当天日期才有效）
+  monthlyBaseMonth?: string;   // 本月基准月份 YYYY-MM
+  yearlyBaseYear?: string;     // 本年基准年份 YYYY
   createdAt: string;
   updatedAt: string;
 }

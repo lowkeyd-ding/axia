@@ -77,7 +77,8 @@ function todayYear(): string {
   return new Date().getFullYear().toString(); // YYYY
 }
 
-function snapshotNeedsUpdate(
+// Capture period baseline — called when date boundary changes, locks the price for that period
+function captureBaseline(
   pos: Position,
   price: number,
   roundP: (v: number) => number
@@ -87,38 +88,42 @@ function snapshotNeedsUpdate(
   const year = todayYear();
   const updates: Partial<Position> = {};
 
-  // Daily: date changed → snapshot today's open price
-  if (pos.dailyOpenDate !== today) {
-    updates.dailyOpenPrice = roundP(price);
-    updates.dailyOpenDate = today;
+  // Daily: only snapshot if we haven't already captured today's baseline
+  if (pos.dailyBaseDate !== today) {
+    updates.dailyBasePrice = roundP(price);
+    updates.dailyBaseDate = today;
   }
-  // Monthly: month changed → snapshot this month's open price
-  if (pos.monthlyOpenDate !== month) {
-    updates.monthlyOpenPrice = roundP(price);
-    updates.monthlyOpenDate = month;
+  // Monthly: only snapshot if we haven't captured this month's baseline
+  if (pos.monthlyBaseMonth !== month) {
+    updates.monthlyBasePrice = roundP(price);
+    updates.monthlyBaseMonth = month;
   }
-  // Yearly: year changed → snapshot this year's open price
-  if (pos.yearlyOpenDate !== year) {
-    updates.yearlyOpenPrice = roundP(price);
-    updates.yearlyOpenDate = year;
+  // Yearly: only snapshot if we haven't captured this year's baseline
+  if (pos.yearlyBaseYear !== year) {
+    updates.yearlyBasePrice = roundP(price);
+    updates.yearlyBaseYear = year;
   }
   return updates;
 }
 
-// Initialize snapshot fields for existing positions (backward compatibility)
-function initSnapshotFields(pos: Position, price: number, roundP: (v: number) => number): Partial<Position> {
+// Init baseline fields for existing positions (backward compatibility)
+function initBaselineFields(pos: Position, price: number, roundP: (v: number) => number): Partial<Position> {
+  const today = todayDate();
+  const month = todayMonth();
+  const year = todayYear();
   const updates: Partial<Position> = {};
-  if (pos.dailyOpenPrice === undefined) {
-    updates.dailyOpenPrice = roundP(price);
-    updates.dailyOpenDate = todayDate();
+
+  if (pos.dailyBasePrice === undefined) {
+    updates.dailyBasePrice = roundP(price);
+    updates.dailyBaseDate = today;
   }
-  if (pos.monthlyOpenPrice === undefined) {
-    updates.monthlyOpenPrice = roundP(price);
-    updates.monthlyOpenDate = todayMonth();
+  if (pos.monthlyBasePrice === undefined) {
+    updates.monthlyBasePrice = roundP(price);
+    updates.monthlyBaseMonth = month;
   }
-  if (pos.yearlyOpenPrice === undefined) {
-    updates.yearlyOpenPrice = roundP(price);
-    updates.yearlyOpenDate = todayYear();
+  if (pos.yearlyBasePrice === undefined) {
+    updates.yearlyBasePrice = roundP(price);
+    updates.yearlyBaseYear = year;
   }
   return updates;
 }
@@ -357,12 +362,12 @@ export const useAppStore = create<AppState>()(
       quantity: roundQuantity(positionData.quantity),
       avgCost: roundPrice(positionData.avgCost),
       currentPrice: price,
-      dailyOpenPrice: price,
-      monthlyOpenPrice: price,
-      yearlyOpenPrice: price,
-      dailyOpenDate: date,
-      monthlyOpenDate: month,
-      yearlyOpenDate: year,
+      dailyBasePrice: price,
+      monthlyBasePrice: price,
+      yearlyBasePrice: price,
+      dailyBaseDate: date,
+      monthlyBaseMonth: month,
+      yearlyBaseYear: year,
       createdAt: getNow(),
       updatedAt: getNow(),
     };
@@ -390,18 +395,18 @@ export const useAppStore = create<AppState>()(
       roundedUpdates.quantity = roundQuantity(updates.quantity);
     }
 
-    // Auto-update period snapshots when currentPrice changes
+    // Auto-capture baseline when period boundary changes; locked thereafter
     if (updates.currentPrice !== undefined) {
-      const snap = snapshotNeedsUpdate(position, updates.currentPrice, roundPrice);
-      Object.assign(roundedUpdates, snap);
-      // Backward compat: init missing snapshot fields from current price
-      if (!position.dailyOpenPrice) {
-        const init = initSnapshotFields(position, position.currentPrice, roundPrice);
+      const base = captureBaseline(position, updates.currentPrice, roundPrice);
+      Object.assign(roundedUpdates, base);
+      // Backward compat: init missing baseline fields from current price
+      if (!position.dailyBasePrice) {
+        const init = initBaselineFields(position, position.currentPrice, roundPrice);
         Object.assign(roundedUpdates, init);
       }
-    } else if (!position.dailyOpenPrice) {
-      // No price update but still need to init snapshots (e.g. on first refresh)
-      const init = initSnapshotFields(position, position.currentPrice, roundPrice);
+    } else if (!position.dailyBasePrice) {
+      // No price update but still need to init baselines (e.g. on first refresh)
+      const init = initBaselineFields(position, position.currentPrice, roundPrice);
       Object.assign(roundedUpdates, init);
     }
 
@@ -591,12 +596,12 @@ export const useAppStore = create<AppState>()(
             quantity: roundQuantity(tradeData.quantity),
             avgCost: price,
             currentPrice: price,
-            dailyOpenPrice: price,
-            monthlyOpenPrice: price,
-            yearlyOpenPrice: price,
-            dailyOpenDate: now.toISOString().slice(0, 10),
-            monthlyOpenDate: now.toISOString().slice(0, 7),
-            yearlyOpenDate: now.getFullYear().toString(),
+            dailyBasePrice: price,
+            monthlyBasePrice: price,
+            yearlyBasePrice: price,
+            dailyBaseDate: now.toISOString().slice(0, 10),
+            monthlyBaseMonth: now.toISOString().slice(0, 7),
+            yearlyBaseYear: now.getFullYear().toString(),
             createdAt: getNow(),
             updatedAt: getNow(),
           };
