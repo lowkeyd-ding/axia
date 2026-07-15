@@ -10,6 +10,7 @@ import {
   TargetAllocation,
   ActionResult,
   TradeExecutionResult,
+  Lot,
 } from '@/types';
 import { syncToCloud as cloudSyncToCloud, loadFromCloud as cloudLoadFromCloud } from './sync';
 
@@ -41,6 +42,7 @@ async function loadFromCloudData(state: Partial<AppState>) {
         trades: cloudData.trades || [],
         transfers: cloudData.transfers || [],
         targetAllocations: cloudData.targetAllocations || [],
+        lots: cloudData.lots || [],
         _lastSyncedAt: new Date().toISOString(),
       });
     } else {
@@ -142,6 +144,7 @@ async function scheduleCloudSync() {
       trades: state.trades,
       transfers: state.transfers,
       targetAllocations: state.targetAllocations,
+      lots: state.lots,
     };
     const success = await cloudSyncToCloud(data);
     if (success) {
@@ -158,6 +161,7 @@ interface AppState {
   trades: Trade[];
   transfers: Transfer[];
   targetAllocations: TargetAllocation[];
+  lots: Lot[];
 
   // Sync state
   _hasLoadedFromCloud: boolean;
@@ -193,6 +197,10 @@ interface AppState {
   updateTargetAllocation: (id: string, updates: Partial<Omit<TargetAllocation, 'id' | 'createdAt'>>) => ActionResult<TargetAllocation>;
   deleteTargetAllocation: (id: string) => ActionResult<string>;
 
+  // Lot actions (per-buy-point P&L tracking)
+  getLotsByPosition: (positionId: string) => Lot[];
+  addLot: (lot: Omit<Lot, 'id' | 'createdAt'>) => Lot;
+
   // Bulk operations
   setAccounts: (accounts: Account[]) => void;
   setPositions: (positions: Position[]) => void;
@@ -226,6 +234,7 @@ export const useAppStore = create<AppState>()(
   trades: [],
   transfers: [],
   targetAllocations: [],
+  lots: [],
   _hasLoadedFromCloud: false,
   _lastSyncedAt: null,
 
@@ -239,6 +248,7 @@ export const useAppStore = create<AppState>()(
       trades: state.trades,
       transfers: state.transfers,
       targetAllocations: state.targetAllocations,
+      lots: state.lots,
     };
 
     // Debounce sync - wait 1 second after last change
@@ -271,6 +281,7 @@ export const useAppStore = create<AppState>()(
       trades: state.trades,
       transfers: state.transfers,
       targetAllocations: state.targetAllocations,
+      lots: state.lots,
     };
     const success = await cloudSyncToCloud(data);
     if (success) {
@@ -292,6 +303,7 @@ export const useAppStore = create<AppState>()(
         trades: cloudData.trades || [],
         transfers: cloudData.transfers || [],
         targetAllocations: cloudData.targetAllocations || [],
+        lots: cloudData.lots || [],
         _hasLoadedFromCloud: true,
         _lastSyncedAt: new Date().toISOString(),
       });
@@ -498,7 +510,7 @@ export const useAppStore = create<AppState>()(
   },
 
   executeTrade: (tradeData) => {
-    const { accounts, positions } = get();
+    const { accounts, positions, lots } = get();
 
     // Get account
     const account = accounts.find((a) => a.id === tradeData.accountId);
@@ -538,13 +550,14 @@ export const useAppStore = create<AppState>()(
     let updatedPosition: Position | undefined;
     let updatedBalance = account.balance;
 
-    // Update position and account balance
+    // Update position, account balance, and lots
     set((state) => {
       const currentAccount = state.accounts.find((a) => a.id === tradeData.accountId);
       if (!currentAccount) return state;
 
       let newPositions = [...state.positions];
       let newAccounts = [...state.accounts];
+      let newLots = [...state.lots];
       const newTrades = [...state.trades, newTrade].sort(
         (a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime()
       );
@@ -570,7 +583,7 @@ export const useAppStore = create<AppState>()(
           const newQuantity = roundQuantity(existingPosition.quantity + tradeData.quantity);
           const newTotalCost = roundPrice((existingPosition.avgCost * existingPosition.quantity) + tradeData.total);
           const newAvgCost = roundPrice(newTotalCost / newQuantity);
-          const newCurrentPrice = roundPrice(tradeData.price); // Use trade price as current
+          const newCurrentPrice = roundPrice(tradeData.price);
 
           const updated = {
             ...existingPosition,
@@ -583,6 +596,19 @@ export const useAppStore = create<AppState>()(
             p.id === existingPosition.id ? updated : p
           );
           updatedPosition = updated;
+
+          // Create a new buy lot for this purchase
+          const newLot: Lot = {
+            id: uuidv4(),
+            positionId: existingPosition.id,
+            quantity: roundQuantity(tradeData.quantity),
+            remainingQuantity: roundQuantity(tradeData.quantity),
+            price: roundPrice(tradeData.price),
+            fees: roundCurrency(tradeData.fees),
+            executedAt: tradeData.executedAt,
+            createdAt: getNow(),
+          };
+          newLots.push(newLot);
         } else {
           // Create new position
           const price = roundPrice(tradeData.price);
@@ -607,6 +633,19 @@ export const useAppStore = create<AppState>()(
           };
           newPositions.push(newPos);
           updatedPosition = newPos;
+
+          // Create a new buy lot
+          const newLot: Lot = {
+            id: uuidv4(),
+            positionId: newPos.id,
+            quantity: roundQuantity(tradeData.quantity),
+            remainingQuantity: roundQuantity(tradeData.quantity),
+            price: roundPrice(tradeData.price),
+            fees: roundCurrency(tradeData.fees),
+            executedAt: tradeData.executedAt,
+            createdAt: getNow(),
+          };
+          newLots.push(newLot);
         }
       } else {
         // Sell: Add to account balance
@@ -626,11 +665,36 @@ export const useAppStore = create<AppState>()(
         );
 
         if (existingPosition) {
+          // FIFO sell: reduce lots in chronological order
+          let remainingToSell = roundQuantity(tradeData.quantity);
+          newLots = newLots.map((lot) => {
+            if (lot.positionId !== existingPosition.id || lot.deletedAt || lot.remainingQuantity <= 0) {
+              return lot;
+            }
+            if (remainingToSell <= 0) return lot;
+
+            if (lot.remainingQuantity <= remainingToSell) {
+              // Fully consume this lot
+              remainingToSell = roundQuantity(remainingToSell - lot.remainingQuantity);
+              return { ...lot, remainingQuantity: 0 };
+            } else {
+              // Partially consume this lot
+              const soldFromThisLot = remainingToSell;
+              remainingToSell = 0;
+              return { ...lot, remainingQuantity: roundQuantity(lot.remainingQuantity - soldFromThisLot) };
+            }
+          });
+
           const newQuantity = roundQuantity(existingPosition.quantity - tradeData.quantity);
 
           if (newQuantity <= 0) {
-            // Remove position if fully sold
+            // Remove position if fully sold; soft-delete remaining lots
             newPositions = newPositions.filter((p) => p.id !== existingPosition.id);
+            newLots = newLots.map((lot) =>
+              lot.positionId === existingPosition.id && !lot.deletedAt
+                ? { ...lot, remainingQuantity: 0, deletedAt: getNow() }
+                : lot
+            );
             updatedPosition = undefined;
           } else {
             // Update position
@@ -651,6 +715,7 @@ export const useAppStore = create<AppState>()(
         positions: newPositions,
         accounts: newAccounts,
         trades: newTrades,
+        lots: newLots,
       };
     });
 
@@ -842,6 +907,26 @@ export const useAppStore = create<AppState>()(
     return { success: true, data: id };
   },
 
+  // Lot actions — per-buy-point P&L tracking
+  getLotsByPosition: (positionId: string) => {
+    return get().lots.filter(
+      (l) => l.positionId === positionId && !l.deletedAt && l.remainingQuantity > 0
+    );
+  },
+
+  addLot: (lotData) => {
+    const newLot: Lot = {
+      ...lotData,
+      id: uuidv4(),
+      createdAt: getNow(),
+    };
+    set((state) => ({
+      lots: [...state.lots, newLot],
+    }));
+    scheduleCloudSync();
+    return newLot;
+  },
+
   // Bulk operations
   setAccounts: (accounts) => {
     set({ accounts });
@@ -907,6 +992,7 @@ export const useAppStore = create<AppState>()(
         trades: state.trades,
         transfers: state.transfers,
         targetAllocations: state.targetAllocations,
+        lots: state.lots,
       },
     };
     return JSON.stringify(exportObj, null, 2);
@@ -964,6 +1050,7 @@ export const useAppStore = create<AppState>()(
         trades: state.trades,
         transfers: state.transfers,
         targetAllocations: state.targetAllocations,
+        lots: state.lots,
         _lastSyncedAt: state._lastSyncedAt,
       }),
       onRehydrateStorage: () => (state) => {

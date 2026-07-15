@@ -109,6 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             trades: state.trades,
             transfers: state.transfers,
             targetAllocations: state.targetAllocations,
+            lots: state.lots,
           },
           currentUser.id
         );

@@ -90,6 +90,19 @@ export interface PositionValue {
   pnlPercent: number;
 }
 
+// Lot types — individual buy lots for P&L tracking per buy point
+export interface Lot {
+  id: string;
+  positionId: string;
+  quantity: number;         // 原买入数量
+  remainingQuantity: number; // 剩余未卖出数量
+  price: number;            // 买入价格
+  fees: number;             // 买入手续费
+  executedAt: string;       // 买入时间
+  createdAt: string;
+  deletedAt?: string;       // 清仓后软删除
+}
+
 // Trade types
 export interface Trade {
   id: string;

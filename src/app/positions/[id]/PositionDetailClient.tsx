@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAppStore } from '@/lib/store';
 import { getPrice } from '@/lib/priceApi';
-import { ASSET_TYPE_CONFIG, type Account, type AssetType } from '@/types';
+import { ASSET_TYPE_CONFIG, type Account, type AssetType, type Lot } from '@/types';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
   bank: '银行',
@@ -17,7 +17,7 @@ const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
 export default function PositionDetailClient() {
   const params = useParams();
   const positionId = params.id as string;
-  const { positions, accounts, trades, updatePosition, deletePosition } = useAppStore();
+  const { positions, accounts, trades, lots, updatePosition, deletePosition } = useAppStore();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const position = positions.find((p) => p.id === positionId);
@@ -360,6 +360,71 @@ export default function PositionDetailClient() {
             </div>
           </div>
         )}
+
+        {(() => {
+          const activeLots = lots.filter(
+            (l) => l.positionId === positionId && !l.deletedAt && l.remainingQuantity > 0
+          );
+          if (activeLots.length === 0) return null;
+
+          return (
+            <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
+              <h2 className="text-base font-medium text-zinc-900 mb-4">买入批次</h2>
+              <div className="space-y-3">
+                {activeLots.map((lot) => {
+                  const lotValue = lot.remainingQuantity * position.currentPrice;
+                  const lotCost = lot.remainingQuantity * lot.price;
+                  const lotPnl = lotValue - lotCost;
+                  const lotPnlPercent = lotCost > 0 ? (lotPnl / lotCost) * 100 : 0;
+                  const lotPnlColor = lotPnl >= 0 ? 'text-red-500' : 'text-green-600';
+
+                  return (
+                    <div
+                      key={lot.id}
+                      className="flex items-center justify-between py-3 border-b border-zinc-100 last:border-0"
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-medium text-zinc-900">
+                            {formatNumber(lot.remainingQuantity, 4)}
+                          </span>
+                          <span className="text-xs text-zinc-500">
+                            @ {position.assetType === 'fund'
+                              ? formatPrice(lot.price, position.assetType)
+                              : formatCurrency(lot.price, currency)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-zinc-400">
+                          <span>买入 {new Date(lot.executedAt).toLocaleDateString('zh-CN')}</span>
+                          <span>成本 {formatCurrency(lotCost, currency)}</span>
+                        </div>
+                      </div>
+                      <div className="text-right ml-4">
+                        <div className={`text-sm font-medium ${lotPnlColor}`}>
+                          {lotPnl >= 0 ? '+' : ''}{formatCurrency(lotPnl, currency)}
+                        </div>
+                        <div className={`text-xs ${lotPnlColor}`}>
+                          {lotPnlPercent >= 0 ? '+' : ''}{lotPnlPercent.toFixed(2)}%
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-4 pt-3 border-t border-zinc-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-zinc-500">累计成本</span>
+                  <span className="text-sm font-medium text-zinc-700">
+                    {formatCurrency(
+                      activeLots.reduce((sum, l) => sum + l.remainingQuantity * l.price, 0),
+                      currency
+                    )}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </main>
     </div>
   );
