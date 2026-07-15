@@ -45,6 +45,29 @@ async function loadFromCloudData(state: Partial<AppState>) {
         lots: cloudData.lots || [],
         _lastSyncedAt: new Date().toISOString(),
       });
+      // Migration: backfill lots for positions loaded from cloud that have no lots
+      setTimeout(() => {
+        const state = useAppStore.getState();
+        const existingLotPositionIds = new Set(state.lots.map((l) => l.positionId));
+        const positionsWithoutLots = state.positions.filter(
+          (p) => !existingLotPositionIds.has(p.id)
+        );
+        if (positionsWithoutLots.length > 0) {
+          const now = getNow();
+          const newLots: Lot[] = positionsWithoutLots.map((p) => ({
+            id: uuidv4(),
+            positionId: p.id,
+            quantity: p.quantity,
+            remainingQuantity: p.quantity,
+            price: p.avgCost,
+            fees: 0,
+            executedAt: p.createdAt,
+            createdAt: now,
+          }));
+          console.log(`[Migration] Backfilling ${newLots.length} lots for cloud-loaded positions`);
+          useAppStore.setState((s) => ({ lots: [...s.lots, ...newLots] }));
+        }
+      }, 0);
     } else {
       console.log('[CloudSync] No cloud data found, keeping local data');
     }
@@ -307,6 +330,29 @@ export const useAppStore = create<AppState>()(
         _hasLoadedFromCloud: true,
         _lastSyncedAt: new Date().toISOString(),
       });
+      // Migration: backfill lots for positions loaded from cloud that have no lots
+      setTimeout(() => {
+        const state = useAppStore.getState();
+        const existingLotPositionIds = new Set(state.lots.map((l) => l.positionId));
+        const positionsWithoutLots = state.positions.filter(
+          (p) => !existingLotPositionIds.has(p.id)
+        );
+        if (positionsWithoutLots.length > 0) {
+          const now = getNow();
+          const newLots: Lot[] = positionsWithoutLots.map((p) => ({
+            id: uuidv4(),
+            positionId: p.id,
+            quantity: p.quantity,
+            remainingQuantity: p.quantity,
+            price: p.avgCost,
+            fees: 0,
+            executedAt: p.createdAt,
+            createdAt: now,
+          }));
+          console.log(`[Migration] Backfilling ${newLots.length} lots for cloud-loaded positions`);
+          useAppStore.setState((s) => ({ lots: [...s.lots, ...newLots] }));
+        }
+      }, 0);
       return true;
     }
     console.log('[CloudSync] No cloud data found, keeping local data');
@@ -367,6 +413,7 @@ export const useAppStore = create<AppState>()(
     const month = now.toISOString().slice(0, 7);
     const year = now.getFullYear().toString();
     const price = roundPrice(positionData.currentPrice);
+    const createdAt = getNow();
 
     const newPosition: Position = {
       ...positionData,
@@ -380,11 +427,25 @@ export const useAppStore = create<AppState>()(
       dailyBaseDate: date,
       monthlyBaseMonth: month,
       yearlyBaseYear: year,
-      createdAt: getNow(),
-      updatedAt: getNow(),
+      createdAt,
+      updatedAt: createdAt,
     };
+
+    // Create a lot for this position (manual entry = single buy event)
+    const newLot: Lot = {
+      id: uuidv4(),
+      positionId: newPosition.id,
+      quantity: roundQuantity(positionData.quantity),
+      remainingQuantity: roundQuantity(positionData.quantity),
+      price: roundPrice(positionData.avgCost),
+      fees: 0,
+      executedAt: createdAt,
+      createdAt,
+    };
+
     set((state) => ({
       positions: [...state.positions, newPosition],
+      lots: [...state.lots, newLot],
     }));
     scheduleCloudSync();
     return { success: true, data: newPosition };
@@ -974,6 +1035,7 @@ export const useAppStore = create<AppState>()(
       trades: [],
       transfers: [],
       targetAllocations: [],
+      lots: [],
       _hasLoadedFromCloud: false,
       _lastSyncedAt: null,
     });
@@ -1060,6 +1122,30 @@ export const useAppStore = create<AppState>()(
           setTimeout(async () => {
             console.log('[CloudSync] Loading from cloud after hydration...');
             await loadFromCloudData(state);
+          }, 0);
+        }
+        // Migration: backfill lots for existing positions that have no lots
+        if (state && typeof window !== 'undefined') {
+          setTimeout(() => {
+            const existingLotPositionIds = new Set(state.lots.map((l) => l.positionId));
+            const positionsWithoutLots = state.positions.filter(
+              (p) => !existingLotPositionIds.has(p.id)
+            );
+            if (positionsWithoutLots.length > 0) {
+              const now = getNow();
+              const newLots: Lot[] = positionsWithoutLots.map((p) => ({
+                id: uuidv4(),
+                positionId: p.id,
+                quantity: p.quantity,
+                remainingQuantity: p.quantity,
+                price: p.avgCost,
+                fees: 0,
+                executedAt: p.createdAt,
+                createdAt: now,
+              }));
+              console.log(`[Migration] Backfilling ${newLots.length} lots for existing positions`);
+              useAppStore.setState((s) => ({ lots: [...s.lots, ...newLots] }));
+            }
           }, 0);
         }
       },
