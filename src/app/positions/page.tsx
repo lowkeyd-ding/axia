@@ -10,6 +10,9 @@ import type { Position, Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
 import { formatCurrency, formatPercent } from '@/utils/format';
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
+import { usePnLStats, computePositionPnL } from '@/lib/hooks/usePnLStats';
+import { useFxRates } from '@/lib/hooks/useFxRates';
+import type { FxRates } from '@/lib/fx';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
   bank: '银行',
@@ -46,7 +49,15 @@ const initialFormData: FormData = {
 
 function PositionsPageContent() {
   const { positions, accounts, addPosition, updatePosition } = useAppStore();
+  const pnlStats = usePnLStats();
+  const { rates: fxRates } = useFxRates();
   const searchParams = useSearchParams();
+
+  // Period P&L per position (pure function, no hooks inside)
+  const getPeriodPnL = (positionId: string) => {
+    const { snapshots, positions: allPos } = useAppStore.getState();
+    return computePositionPnL(positionId, snapshots, allPos, fxRates as FxRates);
+  };
   const filterAccountId = searchParams.get('account');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -360,6 +371,21 @@ function PositionsPageContent() {
                   上次刷新: {lastRefresh.toLocaleTimeString('zh-CN')}
                 </p>
               )}
+              {positions.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
+                  <span className="text-zinc-500">
+                    今日 <span className={`font-medium ${pnlStats.daily.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>{formatCurrency(pnlStats.daily.change)} ({formatPercent(pnlStats.daily.changePercent)})</span>
+                  </span>
+                  <span className="text-zinc-400">|</span>
+                  <span className="text-zinc-500">
+                    本月 <span className={`font-medium ${pnlStats.monthly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>{formatCurrency(pnlStats.monthly.change)} ({formatPercent(pnlStats.monthly.changePercent)})</span>
+                  </span>
+                  <span className="text-zinc-400">|</span>
+                  <span className="text-zinc-500">
+                    今年 <span className={`font-medium ${pnlStats.yearly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>{formatCurrency(pnlStats.yearly.change)} ({formatPercent(pnlStats.yearly.changePercent)})</span>
+                  </span>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -447,6 +473,7 @@ function PositionsPageContent() {
               const assetConfig = ASSET_TYPE_CONFIG[position.assetType];
               const pnlColor = getPnLColor(pnlAmount);
               const isRefreshing = refreshingSymbols.has(position.symbol);
+              const periodPnL = getPeriodPnL(position.id);
 
               return (
                 <div
@@ -547,6 +574,30 @@ function PositionsPageContent() {
                       </button>
                     </div>
                   </div>
+
+                  {/* Period P&L bar */}
+                  {(periodPnL.daily !== 0 || periodPnL.monthly !== 0 || periodPnL.yearly !== 0) && (
+                    <div className="mt-3 pt-3 border-t border-zinc-100 flex gap-6 text-xs">
+                      <div>
+                        <span className="text-zinc-400">今日 </span>
+                        <span className={`font-medium ${periodPnL.daily >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+                          {formatCurrency(periodPnL.daily, 'CNY')}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-400">本月 </span>
+                        <span className={`font-medium ${periodPnL.monthly >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+                          {formatCurrency(periodPnL.monthly, 'CNY')}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-400">今年 </span>
+                        <span className={`font-medium ${periodPnL.yearly >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+                          {formatCurrency(periodPnL.yearly, 'CNY')}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

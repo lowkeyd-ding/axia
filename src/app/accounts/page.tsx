@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { Account } from '@/types';
 import * as XLSX from 'xlsx';
 import { useFxRates } from '@/lib/hooks/useFxRates';
+import { useAccountPnLStats } from '@/lib/hooks/usePnLStats';
 import { convertToAccountCNY, getEffectiveCurrency, inferCurrencyFromSymbol } from '@/lib/fx';
-import { formatCurrency } from '@/utils/format';
+import { formatCurrency, formatPercent } from '@/utils/format';
+import { computeAccountPnL } from '@/lib/hooks/usePnLStats';
+import type { FxRates } from '@/lib/fx';
 
 const ACCOUNT_TYPES = [
   { value: 'bank', label: '银行' },
@@ -51,8 +54,17 @@ const initialFormData: FormData = {
 };
 
 export default function AccountsPage() {
-  const { accounts, positions, addAccount, updateAccount, deleteAccount, addTransfer, transfers, exportData, importData } = useAppStore();
+  const { accounts, positions, addAccount, updateAccount, deleteAccount, addTransfer, transfers, exportData, importData, snapshots } = useAppStore();
   const { rates: fxRates } = useFxRates();
+
+  // Compute account P&L stats (pure function, no hooks inside map)
+  const accountPnLMap = useMemo(() => {
+    const result = new Map<string, ReturnType<typeof computeAccountPnL>>();
+    accounts.forEach((account) => {
+      result.set(account.id, computeAccountPnL(account.id, snapshots, accounts, positions, fxRates as FxRates));
+    });
+    return result;
+  }, [accounts, snapshots, positions, fxRates]);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
@@ -705,6 +717,29 @@ export default function AccountsPage() {
                           <span className="text-blue-500/80">
                             余额: {formatByCurrency(balanceNative, account.currency)}
                           </span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-end gap-3 text-xs">
+                          {(() => {
+                            const pnl = accountPnLMap.get(account.id);
+                            if (!pnl || (pnl.daily.change === 0 && pnl.monthly.change === 0 && pnl.yearly.change === 0)) return null;
+                            const pnlColor = (v: number) => v >= 0 ? 'text-red-500' : 'text-green-500';
+                            return (
+                              <>
+                                <span>
+                                  <span className="text-zinc-400">今</span>{' '}
+                                  <span className={pnlColor(pnl.daily.change)}>{formatCurrency(pnl.daily.change, 'CNY')}</span>
+                                </span>
+                                <span>
+                                  <span className="text-zinc-400">月</span>{' '}
+                                  <span className={pnlColor(pnl.monthly.change)}>{formatCurrency(pnl.monthly.change, 'CNY')}</span>
+                                </span>
+                                <span>
+                                  <span className="text-zinc-400">年</span>{' '}
+                                  <span className={pnlColor(pnl.yearly.change)}>{formatCurrency(pnl.yearly.change, 'CNY')}</span>
+                                </span>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                       {/* Expand indicator */}

@@ -19,6 +19,7 @@ import { useAppStore } from '@/lib/store';
 import type { Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
 import { useFxRates } from '@/lib/hooks/useFxRates';
+import { usePnLStats } from '@/lib/hooks/usePnLStats';
 import { convertToAccountCNY, getEffectiveCurrency } from '@/lib/fx';
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
 import { formatCurrency, formatPercent } from '@/utils/format';
@@ -90,6 +91,7 @@ export default function HomePage() {
   const [timeRange, setTimeRange] = useState<TimeRange>('thisYear');
   const [benchmark, setBenchmark] = useState<Benchmark>('none');
   const { rates: fxRates } = useFxRates();
+  const pnlStats = usePnLStats();
 
   const totalStats = useMemo(() => {
     let totalValueCNY = 0;
@@ -313,6 +315,33 @@ export default function HomePage() {
               </p>
             </div>
           </div>
+
+          {/* 周期盈亏 */}
+          {positions.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-zinc-100 grid grid-cols-3 gap-4 text-sm">
+              <div className="text-center">
+                <p className="text-zinc-400 text-xs mb-1">今日盈亏</p>
+                <p className={`font-semibold ${pnlStats.daily.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+                  {formatCurrency(pnlStats.daily.change)}
+                  <span className="text-xs font-normal ml-1">({formatPercent(pnlStats.daily.changePercent)})</span>
+                </p>
+              </div>
+              <div className="text-center border-x border-zinc-100">
+                <p className="text-zinc-400 text-xs mb-1">本月盈亏</p>
+                <p className={`font-semibold ${pnlStats.monthly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+                  {formatCurrency(pnlStats.monthly.change)}
+                  <span className="text-xs font-normal ml-1">({formatPercent(pnlStats.monthly.changePercent)})</span>
+                </p>
+              </div>
+              <div className="text-center">
+                <p className="text-zinc-400 text-xs mb-1">今年盈亏</p>
+                <p className={`font-semibold ${pnlStats.yearly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+                  {formatCurrency(pnlStats.yearly.change)}
+                  <span className="text-xs font-normal ml-1">({formatPercent(pnlStats.yearly.changePercent)})</span>
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 资产配置饼图 & 目标对比 */}
