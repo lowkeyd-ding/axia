@@ -61,7 +61,7 @@ async function loadFromCloudData(state: Partial<AppState>) {
             remainingQuantity: p.quantity,
             price: p.avgCost,
             fees: 0,
-            executedAt: p.createdAt,
+            executedAt: p.buyDate ? new Date(p.buyDate).toISOString() : p.createdAt,
             createdAt: now,
           }));
           console.log(`[Migration] Backfilling ${newLots.length} lots for cloud-loaded positions`);
@@ -346,7 +346,7 @@ export const useAppStore = create<AppState>()(
             remainingQuantity: p.quantity,
             price: p.avgCost,
             fees: 0,
-            executedAt: p.createdAt,
+            executedAt: p.buyDate ? new Date(p.buyDate).toISOString() : p.createdAt,
             createdAt: now,
           }));
           console.log(`[Migration] Backfilling ${newLots.length} lots for cloud-loaded positions`);
@@ -414,6 +414,10 @@ export const useAppStore = create<AppState>()(
     const year = now.getFullYear().toString();
     const price = roundPrice(positionData.currentPrice);
     const createdAt = getNow();
+    // Use provided buyDate or fall back to today
+    const buyDate = positionData.buyDate
+      ? new Date(positionData.buyDate).toISOString()
+      : createdAt;
 
     const newPosition: Position = {
       ...positionData,
@@ -439,7 +443,7 @@ export const useAppStore = create<AppState>()(
       remainingQuantity: roundQuantity(positionData.quantity),
       price: roundPrice(positionData.avgCost),
       fees: 0,
-      executedAt: createdAt,
+      executedAt: buyDate,
       createdAt,
     };
 
@@ -1140,7 +1144,7 @@ export const useAppStore = create<AppState>()(
                 remainingQuantity: p.quantity,
                 price: p.avgCost,
                 fees: 0,
-                executedAt: p.createdAt,
+                executedAt: p.buyDate ? new Date(p.buyDate).toISOString() : p.createdAt,
                 createdAt: now,
               }));
               console.log(`[Migration] Backfilling ${newLots.length} lots for existing positions`);

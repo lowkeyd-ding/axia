@@ -25,6 +25,7 @@ export interface Position {
   avgCost: number;
   currentPrice: number;
   currency?: string; // 持仓币种，如果不填则使用账户币种
+  buyDate?: string; // 买入日期 YYYY-MM-DD
   // Period baseline prices for P&L calculation — captured ONCE when period changes, then locked
   dailyBasePrice?: number;     // 今日基准价，写入后当日不再变化
   monthlyBasePrice?: number;   // 本月基准价，写入后当月不再变化
