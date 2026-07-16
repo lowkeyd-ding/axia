@@ -253,7 +253,11 @@ export default function PositionDetailClient() {
             </div>
             <div className="flex items-center justify-between py-2 border-b border-zinc-100">
               <span className="text-sm text-zinc-500">买入日期</span>
-              <span className="text-sm text-zinc-900">{formatDate(position.createdAt)}</span>
+              <span className="text-sm text-zinc-900">
+                {position.buyDate
+                  ? formatDate(position.buyDate)
+                  : formatDate(position.createdAt)}
+              </span>
             </div>
             <div className="flex items-center justify-between py-2">
               <span className="text-sm text-zinc-500">最后更新</span>
