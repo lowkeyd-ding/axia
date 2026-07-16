@@ -309,6 +309,7 @@ function PositionsPageContent() {
         quantity: parseFloat(formData.quantity),
         avgCost: parseFloat(formData.avgCost),
         currentPrice: parseFloat(formData.currentPrice),
+        buyDate: formData.buyDate || undefined,
       });
     } else {
       // Add new position
