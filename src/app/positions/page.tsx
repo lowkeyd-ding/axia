@@ -534,17 +534,15 @@ function PositionsPageContent() {
                           e.stopPropagation();
                           handleRefreshSingle(position);
                         }}
-                        disabled={isRefreshing || isBankProduct(position.assetType) || position.assetType === 'fund'}
+                        disabled={isRefreshing || isBankProduct(position.assetType)}
                         className={`p-2 rounded-lg transition-colors ${
-                          isBankProduct(position.assetType) || position.assetType === 'fund'
+                          isBankProduct(position.assetType)
                             ? 'text-zinc-300 cursor-not-allowed'
                             : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100'
                         } ${isRefreshing ? 'animate-spin' : ''}`}
                         title={
                           isBankProduct(position.assetType)
                             ? '银行产品需手动更新'
-                            : position.assetType === 'fund'
-                            ? '基金净值需手动更新'
                             : `点击更新${getSourceLabel(position.assetType)}`
                         }
                       >
