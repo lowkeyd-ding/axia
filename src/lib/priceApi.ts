@@ -159,6 +159,19 @@ export async function refreshPricesByType(
 }
 
 async function fetchSymbol(symbol: string): Promise<PriceData | null> {
+  try {
+    const response = await fetch(`/api/price?symbols=${encodeURIComponent(symbol)}`);
+    if (response.ok) {
+      const data = await response.json();
+      if (data.prices && data.prices.length > 0) {
+        return data.prices[0];
+      }
+    }
+  } catch {
+    // Fall through to fallback
+  }
+
+  // Fallback to external API
   const { fetchSymbol: externalFetch } = await import('@/lib/externalPriceApi');
   return externalFetch(symbol);
 }

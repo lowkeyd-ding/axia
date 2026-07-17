@@ -242,7 +242,10 @@ async function fetchFromEastMoney(symbol: string, exchange: string): Promise<Pri
 }
 
 async function fetchFundFromEastMoney(symbol: string): Promise<PriceData | null> {
-  const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=1.${symbol}&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60`;
+  // Determine market: SH funds start with 5, SZ funds start with 1 or 15
+  const upper = symbol.toUpperCase();
+  const marketId = /^5\d{5}$/.test(upper) ? '1' : '0';
+  const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${marketId}.${symbol}&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60`;
 
   try {
     const response = await fetch(url, {
@@ -317,7 +320,8 @@ async function fetchHKFromEastMoney(symbol: string): Promise<PriceData | null> {
 function getExchange(symbol: string): string {
   const upper = symbol.toUpperCase();
   if (/\.OF$/i.test(upper)) return 'FUND_OF';
-  if (/^5\d{5}$/.test(upper)) return 'FUND';
+  // ETF funds: 5xxxxx (SH), 1xxxxx/15xxxx (SZ like 159919, 159915)
+  if (/^(5|1|15)\d{5}$/.test(upper)) return 'FUND';
   if (/^[023]\d{5}$/.test(upper)) return 'SZ';
   if (/^[569]\d{5}$/.test(upper)) return 'SH';
   if (/^\d{5}$/.test(upper)) return 'HK';
@@ -330,53 +334,46 @@ export async function fetchSymbol(symbol: string): Promise<PriceData | null> {
   const exchange = getExchange(symbol);
 
   if (exchange === 'FUND_OF') return fetchOFFundNAV(symbol);
-  if (exchange === 'FUND') return fetchFundFromEastMoney(symbol);
+  if (exchange === 'FUND') return fetchFundNAV(symbol);
   if (exchange === 'SZ' || exchange === 'SH' || exchange === 'HK') return fetchFromSina(symbol);
   if (exchange === 'US') return parseUSResponse(symbol);
   return null;
 }
 
 async function fetchOFFundNAV(symbol: string): Promise<PriceData | null> {
-  const fundCode = symbol.replace(/\.OF$/i, '');
-  const url = `https://fundgz.1234567.com.cn/js/${fundCode}.js?rt=${Date.now()}`;
-
   try {
-    const response = await fetch(url, {
-      headers: { Referer: 'https://fund.eastmoney.com', 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(5000)
+    const response = await fetch(`/api/price?symbols=${encodeURIComponent(symbol)}`, {
+      signal: AbortSignal.timeout(10000),
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      return fetchFundFromEastMoney(symbol);
+    }
 
-    const text = await response.text();
-    const match = text.match(/jsonpgz\((.+)\)/);
-    if (!match) return null;
+    const data = await response.json();
+    if (data.prices && data.prices.length > 0) {
+      return data.prices[0];
+    }
+  } catch {}
 
-    const data = JSON.parse(match[1]);
-    if (!data || !data.gsz) return null;
+  return fetchFundFromEastMoney(symbol);
+}
 
-    const price = parseFloat(data.gsz);
-    const prevClose = parseFloat(data.gzct || data.dwjz);
-    const change = price - prevClose;
-    const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+async function fetchFundNAV(symbol: string): Promise<PriceData | null> {
+  try {
+    const response = await fetch(`/api/price?symbols=${encodeURIComponent(symbol)}`, {
+      signal: AbortSignal.timeout(10000),
+    });
 
-    if (isNaN(price) || price === 0) return null;
+    if (!response.ok) {
+      return fetchFundFromEastMoney(symbol);
+    }
 
-    return {
-      symbol: symbol.toUpperCase(),
-      name: data.name || fundCode,
-      price,
-      change,
-      changePercent,
-      prevClose,
-      open: price,
-      high: price,
-      low: price,
-      volume: 0,
-      timestamp: data.gztime || new Date().toISOString(),
-      source: 'fund'
-    };
-  } catch {
-    return null;
-  }
+    const data = await response.json();
+    if (data.prices && data.prices.length > 0) {
+      return data.prices[0];
+    }
+  } catch {}
+
+  return fetchFundFromEastMoney(symbol);
 }
