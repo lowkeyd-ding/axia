@@ -199,7 +199,4 @@ async function fetchSymbol(
   return result ? { ...result, symbol: upper } : null;
 }
 
-async function fetchFundDirectly(symbol: string): Promise<PriceData | null> {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return null;
-  return null;
-}
+
