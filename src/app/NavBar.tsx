@@ -60,44 +60,47 @@ export default function NavBar() {
 
   return (
     <>
-      <nav className="sticky top-0 z-40 border-b border-white/60 bg-white/75 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.6),0_8px_30px_rgba(24,24,27,0.04)]">
-        <div className="max-w-5xl mx-auto px-4">
+      <nav className="sticky top-0 z-40 border-b border-white/70 bg-white/80 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.6),0_8px_30px_rgba(24,24,27,0.05)]">
+        <div className="max-w-6xl mx-auto px-4">
           <div className="flex items-center justify-between h-16">
-            <Link href="/" className="flex items-center gap-3 group">
-              <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-blue-500 via-blue-600 to-cyan-500 flex items-center justify-center font-bold text-white shadow-lg shadow-blue-500/25 group-hover:scale-105 transition-transform">
+            <Link href="/" className="flex items-center gap-3 group shrink-0">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500 via-blue-600 to-cyan-500 flex items-center justify-center font-bold text-white shadow-lg shadow-blue-500/25 group-hover:scale-105 transition-transform">
                 <span className="text-sm tracking-wide">AX</span>
               </div>
-              <span className="text-lg font-semibold text-zinc-900 tracking-tight">AXIA</span>
+              <div className="hidden sm:block leading-tight">
+                <p className="text-sm font-semibold text-zinc-900 tracking-tight">AXIA</p>
+                <p className="text-xs text-zinc-500">资产管理仪表盘</p>
+              </div>
             </Link>
 
             <div className="hidden md:flex items-center gap-1 bg-zinc-100/70 rounded-2xl p-1">
-            {NAV_ITEMS.map((item) => {
-              const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
-                    isActive ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100' : 'text-zinc-600 hover:text-zinc-900 hover:bg-white/70'
-                  }`}
-                >
-                  {item.icon}
-                  <span className="hidden sm:inline">{item.label}</span>
-                </Link>
-              );
-            })}
+              {NAV_ITEMS.map((item) => {
+                const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+                      isActive ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100' : 'text-zinc-600 hover:text-zinc-900 hover:bg-white/70'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="hidden lg:inline">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
 
-            {/* Auth Section */}
-            <div className="ml-2 pl-3 border-l border-zinc-200/70" ref={dropdownRef}>
+            <div className="flex items-center gap-2" ref={dropdownRef}>
               {isLoading ? (
-                <div className="w-8 h-8 rounded-full bg-zinc-200 animate-pulse" />
+                <div className="w-9 h-9 rounded-full bg-zinc-200 animate-pulse" />
               ) : user ? (
                 <div className="relative">
                   <button
                     onClick={() => setDropdownOpen(!dropdownOpen)}
                     className="flex items-center gap-2 px-2 py-1.5 rounded-2xl hover:bg-zinc-100 transition-colors"
                   >
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-sm font-medium">
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-sm font-medium">
                       {user.email?.charAt(0).toUpperCase() ?? 'U'}
                     </div>
                     <svg className={`w-4 h-4 text-zinc-500 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -106,11 +109,12 @@ export default function NavBar() {
                   </button>
 
                   {dropdownOpen && (
-                    <div className="absolute right-0 mt-1 w-48 bg-white border border-zinc-200 rounded-xl shadow-lg py-1">
-                      <div className="px-3 py-2 border-b border-zinc-100">
+                    <div className="absolute right-0 mt-2 w-56 bg-white border border-zinc-200 rounded-2xl shadow-xl py-2 overflow-hidden">
+                      <div className="px-4 py-3 border-b border-zinc-100">
                         <p className="text-sm font-medium text-zinc-900 truncate">{user.email}</p>
+                        <p className="text-xs text-zinc-500 mt-1">已登录</p>
                       </div>
-                      <button onClick={handleSignOut} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50">
+                      <button onClick={handleSignOut} className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors text-left">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                         </svg>
@@ -120,7 +124,7 @@ export default function NavBar() {
                   )}
                 </div>
               ) : (
-                <Link href="/signin" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors">
+                <Link href="/signin" className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
                   </svg>
@@ -130,26 +134,25 @@ export default function NavBar() {
             </div>
           </div>
         </div>
-      </div>
-    </nav>
-    <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-zinc-200 bg-white/90 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
-      <div className="grid grid-cols-4 max-w-5xl mx-auto px-2 py-1">
-        {[
-          { href: '/', label: '首页', icon: '⌂' },
-          { href: '/positions', label: '持仓', icon: '▣' },
-          { href: '/trades', label: '交易', icon: '↔' },
-          { href: '/accounts', label: '账户', icon: '◫' },
-        ].map((item) => {
-          const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
-          return (
-            <Link key={item.href} href={item.href} className={`flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-xs ${active ? 'text-blue-600' : 'text-zinc-500'}`}>
-              <span aria-hidden="true" className="text-base leading-none">{item.icon}</span>
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
-      </div>
-    </nav>
+      </nav>
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-zinc-200 bg-white/90 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
+        <div className="grid grid-cols-4 max-w-6xl mx-auto px-2 py-1">
+          {[
+            { href: '/', label: '首页', icon: '⌂' },
+            { href: '/positions', label: '持仓', icon: '▣' },
+            { href: '/trades', label: '交易', icon: '↔' },
+            { href: '/accounts', label: '账户', icon: '◫' },
+          ].map((item) => {
+            const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
+            return (
+              <Link key={item.href} href={item.href} className={`flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-xs ${active ? 'text-blue-600' : 'text-zinc-500'}`}>
+                <span aria-hidden="true" className="text-base leading-none">{item.icon}</span>
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
     </>
   );
 }
