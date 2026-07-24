@@ -31,26 +31,37 @@ export function validateTargetAllocation(allocation: Pick<TargetAllocation, 'nam
   return null;
 }
 
+export function validateAllocationRows(
+  rows: Array<{ category: AllocationCategory; percentage: number }>
+): string | null {
+  return validateTargetAllocation({ name: 'rows', allocations: rows });
+}
+
 export function calculateAllocationDeviations(
   current: Partial<Record<AllocationCategory, number>>,
   allocation: TargetAllocation
 ): AllocationDeviation[] {
-  return allocation.allocations
-    .map((item) => {
-      const category = item.category as AllocationCategory;
-      const label = ALLOCATION_CATEGORIES.find((candidate) => candidate.category === category)?.label ?? item.category;
-      const currentPercentage = current[category] ?? 0;
-      const deviation = currentPercentage - item.percentage;
-      return {
-        category,
-        label,
-        currentPercentage,
-        targetPercentage: item.percentage,
-        deviation,
-        status: deviation > 0.01 ? '高于目标' : deviation < -0.01 ? '低于目标' : '接近目标',
-      };
-    })
-    .sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation));
+  const deviations: AllocationDeviation[] = allocation.allocations.map((item) => {
+    const category = item.category as AllocationCategory;
+    const label = ALLOCATION_CATEGORIES.find((candidate) => candidate.category === category)?.label ?? item.category;
+    const currentPercentage = current[category] ?? 0;
+    const deviation = currentPercentage - item.percentage;
+    const status = (deviation > 0.01
+      ? '高于目标'
+      : deviation < -0.01
+        ? '低于目标'
+        : '接近目标') as AllocationDeviation['status'];
+    return {
+      category,
+      label,
+      currentPercentage,
+      targetPercentage: item.percentage,
+      deviation,
+      status,
+    };
+  });
+
+  return deviations.sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation));
 }
 
 export function formatAllocationDeviation(deviation: AllocationDeviation): string {
