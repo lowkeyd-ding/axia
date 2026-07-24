@@ -7,6 +7,7 @@ import { useAppStore } from '@/lib/store';
 import { getPrice } from '@/lib/priceApi';
 import { ASSET_TYPE_CONFIG, type Account, type AssetType, type Lot } from '@/types';
 import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
+import { positionFeeSummary } from '@/lib/tradeFees';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
   bank: '银行',
@@ -26,6 +27,9 @@ export default function PositionDetailClient() {
   const positionTrades = position
     ? trades.filter((t) => t.accountId === position.accountId && t.symbol === position.symbol)
     : [];
+  const feeSummary = position
+    ? positionFeeSummary(trades, position)
+    : { total: 0, hasAnyRecorded: false, unrecordedCount: 0 };
 
   const handleRefreshPrice = async () => {
     if (!position || isRefreshing) return;
@@ -303,6 +307,25 @@ export default function PositionDetailClient() {
               </span>
               <span className="text-sm text-zinc-700">{formatDualCurrency(costBasis, currency)}</span>
             </div>
+            {!isBank && (
+              <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-zinc-500">成本口径</span>
+                  <span className="text-right text-zinc-700">数量 × 持仓平均成本价</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-4">
+                  <span className="text-zinc-500">已记录费用</span>
+                  <span className="text-right text-zinc-700">
+                    {feeSummary.hasAnyRecorded ? formatDualCurrency(feeSummary.total, currency) : '未记录'}
+                    {feeSummary.unrecordedCount > 0 ? `（${feeSummary.unrecordedCount} 笔未填写）` : ''}
+                  </span>
+                </div>
+                <div className="mt-2 flex items-start justify-between gap-4">
+                  <span className="text-zinc-500">当前浮盈亏</span>
+                  <span className="max-w-xs text-right text-zinc-700">按持仓平均成本计算；已记录费用单独展示，不自动计入浮盈亏。</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

@@ -6,6 +6,7 @@ import { useAppStore } from '@/lib/store';
 import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
 import type { Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
+import { formatFeeDisplay, tradeCashWithFees } from '@/lib/tradeFees';
 import { formatCurrency } from '@/utils/format';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
@@ -317,6 +318,9 @@ export default function TradesPage() {
             {trades.map((trade) => {
               const assetConfig = ASSET_TYPE_CONFIG[trade.assetType];
               const isBuy = trade.type === 'buy';
+              const currency = getAccountCurrency(trade.accountId);
+              const feeDisplay = formatFeeDisplay(trade);
+              const cashWithFees = tradeCashWithFees(trade);
 
               return (
                 <div
@@ -348,17 +352,16 @@ export default function TradesPage() {
                       </div>
                     </div>
 
-                    <div className="text-right ml-4">
-                      <p className={`text-base font-medium ${
-                        isBuy ? 'text-blue-600' : 'text-red-500'
-                      }`}>
-                        {isBuy ? '-' : '+'}{formatCurrency(trade.total, getAccountCurrency(trade.accountId))}
+                    <div className="text-right ml-4 space-y-0.5">
+                      <p className={`text-base font-medium ${isBuy ? 'text-blue-600' : 'text-red-500'}`}>
+                        {isBuy ? '买入' : '卖出'} · {formatCurrency(trade.total, currency)}
                       </p>
-                      {trade.fees > 0 && (
-                        <p className="text-xs text-zinc-500">
-                          手续费: {formatCurrency(trade.fees, getAccountCurrency(trade.accountId))}
-                        </p>
-                      )}
+                      <p className="text-xs text-zinc-500">
+                        已记录费用：{feeDisplay.amount != null && feeDisplay.amount > 0 ? formatCurrency(feeDisplay.amount, currency) : feeDisplay.label}
+                      </p>
+                      <p className="text-xs font-medium text-zinc-700">
+                        {isBuy ? '含费总支出' : '扣费后收入'}：{formatCurrency(cashWithFees, currency)}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -608,9 +611,10 @@ export default function TradesPage() {
                   min="0"
                   value={formData.fees}
                   onChange={(e) => setFormData({ ...formData, fees: e.target.value })}
-                  placeholder="0.00"
+                  placeholder="未填写"
                   className="w-full px-3.5 py-2.5 bg-white border border-zinc-300 rounded-lg text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
+                <p className="mt-1.5 text-xs text-zinc-500">请按实际账单填写；未填写时不会自动估算。无法区分费用类型时统一记录为已记录费用。</p>
               </div>
 
               {/* Trade Time */}

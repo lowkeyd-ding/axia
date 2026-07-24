@@ -26,6 +26,12 @@ import { DEFAULT_PRICE_COLORS } from '@/config/colors';
 import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
 import { computeCashFlowAdjustedPerformance } from '@/lib/performance';
 import { BENCHMARK_META } from '@/lib/benchmark';
+import {
+  ALLOCATION_CATEGORIES,
+  calculateAllocationDeviations,
+  validateAllocationRows,
+  type AllocationCategory,
+} from '@/lib/targetAllocation';
 
 const ASSET_COLORS = [
   '#3b82f6', // blue - stock
@@ -81,8 +87,26 @@ interface AssetAllocation {
 
 export default function HomePage() {
   const router = useRouter();
-  const { accounts, positions, snapshots, transfers } = useAppStore();
+  const {
+    accounts,
+    positions,
+    snapshots,
+    transfers,
+    targetAllocations,
+    addTargetAllocation,
+    updateTargetAllocation,
+  } = useAppStore();
   const [timeRange, setTimeRange] = useState<TimeRange>('thisYear');
+  const [isAllocationEditorOpen, setIsAllocationEditorOpen] = useState(false);
+  const [allocationName, setAllocationName] = useState('我的目标配置');
+  const [allocationRows, setAllocationRows] = useState<Record<AllocationCategory, string>>({
+    stock: '',
+    fund: '',
+    bank_wealth_management: '',
+    bank_cash: '',
+    cash: '',
+  });
+  const [allocationError, setAllocationError] = useState<string | null>(null);
   const { rates: fxRates } = useFxRates();
   const pnlStats = usePnLStats();
 
@@ -205,6 +229,48 @@ export default function HomePage() {
     name: a.name,
     value: a.value,
   }));
+
+  const activeTargetAllocation = targetAllocations[0];
+  const allocationDeviations = useMemo(() => {
+    if (!activeTargetAllocation) return [];
+    const current = assetAllocations.reduce<Partial<Record<AllocationCategory, number>>>((result, item) => {
+      result[item.type] = (result[item.type] ?? 0) + item.percentage;
+      return result;
+    }, {});
+    return calculateAllocationDeviations(current, activeTargetAllocation).slice(0, 3);
+  }, [activeTargetAllocation, assetAllocations]);
+
+  const openAllocationEditor = () => {
+    const existing = targetAllocations[0];
+    setAllocationName(existing?.name || '我的目标配置');
+    setAllocationRows({
+      stock: String(existing?.allocations.find((item) => item.category === 'stock')?.percentage ?? ''),
+      fund: String(existing?.allocations.find((item) => item.category === 'fund')?.percentage ?? ''),
+      bank_wealth_management: String(existing?.allocations.find((item) => item.category === 'bank_wealth_management')?.percentage ?? ''),
+      bank_cash: String(existing?.allocations.find((item) => item.category === 'bank_cash')?.percentage ?? ''),
+      cash: String(existing?.allocations.find((item) => item.category === 'cash')?.percentage ?? ''),
+    });
+    setAllocationError(null);
+    setIsAllocationEditorOpen(true);
+  };
+
+  const saveAllocation = () => {
+    const rows = ALLOCATION_CATEGORIES.flatMap(({ category }) => {
+      const raw = allocationRows[category].trim();
+      return raw === '' ? [] : [{ category, percentage: Number(raw) }];
+    });
+    const error = !allocationName.trim() ? '请输入目标配置名称。' : validateAllocationRows(rows);
+    if (error) {
+      setAllocationError(error);
+      return;
+    }
+    if (activeTargetAllocation) {
+      updateTargetAllocation(activeTargetAllocation.id, { name: allocationName.trim(), allocations: rows });
+    } else {
+      addTargetAllocation({ name: allocationName.trim(), allocations: rows });
+    }
+    setIsAllocationEditorOpen(false);
+  };
 
   const accountSummaries = useMemo(() => {
     return accounts.map((account) => {
@@ -399,6 +465,43 @@ export default function HomePage() {
             </div>
           )}
         </div>
+
+        {activeTargetAllocation && allocationDeviations.length > 0 && (
+          <section className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-blue-600">组合检查</p>
+                <h2 className="mt-1 text-base font-semibold text-zinc-900">配置偏离</h2>
+                <p className="mt-1 text-xs text-zinc-500">只展示偏离最大的 3 项，仅作配置提醒，不构成投资建议。</p>
+              </div>
+              <button onClick={openAllocationEditor} className="text-sm font-medium text-blue-600 hover:text-blue-700">编辑目标</button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              {allocationDeviations.map((item) => (
+                <div key={item.category} className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium text-zinc-900">{item.label}</span>
+                    <span className={`text-xs font-medium ${Math.abs(item.deviation) > 5 ? 'text-amber-600' : 'text-zinc-500'}`}>
+                      {Math.abs(item.deviation) > 5 ? '偏离较大' : item.status}
+                    </span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+                    <div><p className="text-zinc-400">当前</p><p className="mt-1 font-semibold text-zinc-800">{item.currentPercentage.toFixed(1)}%</p></div>
+                    <div><p className="text-zinc-400">目标</p><p className="mt-1 font-semibold text-zinc-800">{item.targetPercentage.toFixed(1)}%</p></div>
+                    <div><p className="text-zinc-400">偏离</p><p className="mt-1 font-semibold text-zinc-800">{item.deviation > 0 ? '+' : ''}{item.deviation.toFixed(1)}%</p></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {!activeTargetAllocation && (
+          <button onClick={openAllocationEditor} className="w-full rounded-2xl border border-dashed border-blue-200 bg-blue-50/60 p-5 text-left hover:bg-blue-50 transition-colors">
+            <p className="text-sm font-semibold text-zinc-900">设置目标配置</p>
+            <p className="mt-1 text-xs text-zinc-500">为股票、基金、现金和银行理财设置目标比例，帮助发现组合偏离。</p>
+          </button>
+        )}
 
         {/* 资产配置饼图 & 目标对比 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -691,6 +794,51 @@ export default function HomePage() {
           </Link>
         </div>
       </main>
+
+      {isAllocationEditorOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/35 p-4 backdrop-blur-sm" onClick={(event) => event.target === event.currentTarget && setIsAllocationEditorOpen(false)}>
+          <div className="w-full max-w-lg rounded-[24px] border border-zinc-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-zinc-100 px-6 py-5">
+              <div>
+                <h2 className="text-lg font-semibold text-zinc-900">目标配置</h2>
+                <p className="mt-1 text-xs text-zinc-500">总和可低于 100%，未配置部分将保留。现金参与目标配置。</p>
+              </div>
+              <button onClick={() => setIsAllocationEditorOpen(false)} className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700" aria-label="关闭">×</button>
+            </div>
+            <div className="space-y-5 p-6">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-zinc-700">配置名称</label>
+                <input value={allocationName} onChange={(event) => setAllocationName(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {ALLOCATION_CATEGORIES.map(({ category, label }) => (
+                  <label key={category} className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                    <span className="text-sm font-medium text-zinc-700">{label}</span>
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value={allocationRows[category]}
+                        onChange={(event) => setAllocationRows((current) => ({ ...current, [category]: event.target.value }))}
+                        className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        placeholder="未配置"
+                      />
+                      <span className="text-sm text-zinc-400">%</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              {allocationError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">{allocationError}</p>}
+            </div>
+            <div className="flex gap-3 border-t border-zinc-100 px-6 py-4">
+              <button onClick={() => setIsAllocationEditorOpen(false)} className="flex-1 rounded-xl border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50">取消</button>
+              <button onClick={saveAllocation} className="flex-1 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-500">保存目标</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
