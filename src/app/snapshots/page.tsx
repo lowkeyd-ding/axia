@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   XAxis,
   YAxis,
@@ -14,7 +15,8 @@ import { useAppStore } from '@/lib/store';
 import { ASSET_TYPE_CONFIG, type AssetType, type Snapshot, type PositionValue } from '@/types';
 import { useFxRates } from '@/lib/hooks/useFxRates';
 import { convertToAccountCNY, getEffectiveCurrency } from '@/lib/fx';
-import { formatCurrency, formatPercent } from '@/utils/format';
+import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
+import { computeCashFlowAdjustedPerformance } from '@/lib/performance';
 
 interface FormData {
   date: string;
@@ -22,7 +24,9 @@ interface FormData {
 }
 
 export default function SnapshotsPage() {
-  const { snapshots, accounts, positions, addSnapshot, deleteSnapshot } = useAppStore();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { snapshots, accounts, positions, transfers, addSnapshot, deleteSnapshot } = useAppStore();
   const { rates: fxRates } = useFxRates();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedSnapshot, setSelectedSnapshot] = useState<Snapshot | null>(null);
@@ -31,6 +35,12 @@ export default function SnapshotsPage() {
     date: new Date().toISOString().slice(0, 10),
     note: '',
   });
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setIsModalOpen(true);
+    }
+  }, [searchParams]);
 
   // Calculate current portfolio value
   const currentStats = useMemo(() => {
@@ -145,6 +155,11 @@ export default function SnapshotsPage() {
     };
   }, [accounts, positions, snapshots]);
 
+  const adjustedPerformance = useMemo(
+    () => computeCashFlowAdjustedPerformance(snapshots, transfers),
+    [snapshots, transfers]
+  );
+
   // Chart data
   const chartData = useMemo(() => {
     return [...snapshots].reverse().map((snapshot) => ({
@@ -173,6 +188,9 @@ export default function SnapshotsPage() {
 
     setFormData({ date: new Date().toISOString().slice(0, 10), note: '' });
     setIsModalOpen(false);
+    if (searchParams.get('new') === '1') {
+      router.replace('/snapshots');
+    }
   };
 
   const getComparison = (snapshot: Snapshot) => {
@@ -194,14 +212,14 @@ export default function SnapshotsPage() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-zinc-50 text-zinc-900">
-      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-zinc-200 shadow-sm">
+    <div className="flex flex-col min-h-screen bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.06),transparent_24%),linear-gradient(to_bottom,#fafafa,#f8fafc)] text-zinc-900">
+      <header className="border-b border-white/60 bg-white/75 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.6),0_8px_30px_rgba(24,24,27,0.04)] md:block hidden">
         <div className="max-w-5xl mx-auto px-4 py-5">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">资产快照</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">资产记录</h1>
               <p className="mt-1 text-sm text-zinc-500">
-                共 {snapshots.length} 个快照
+                共 {snapshots.length} 条记录
               </p>
             </div>
             <button
@@ -219,38 +237,38 @@ export default function SnapshotsPage() {
 
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 space-y-6">
         {/* Current Stats Card */}
-        <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
+        <div className="bg-white/85 backdrop-blur border border-white/60 rounded-3xl p-6 shadow-[0_10px_30px_rgba(24,24,27,0.05)]">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-medium text-zinc-900">当前资产</h2>
+            <h2 className="text-base font-medium text-zinc-900">当前资产概览</h2>
             <span className="text-xs text-zinc-500">
               {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}
             </span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             <div>
-              <p className="text-sm text-zinc-500 mb-1">总资产 (CNY)</p>
+              <p className="text-sm text-zinc-500 mb-1">总资产</p>
               <p className="text-2xl font-bold text-zinc-900">
-                {formatCurrency(currentStats.totalValue)}
+                {formatDualCurrency(currentStats.totalValue, 'CNY')}
               </p>
             </div>
             <div>
-              <p className="text-sm text-zinc-500 mb-1">持仓市值</p>
+              <p className="text-sm text-zinc-500 mb-1">持仓总值</p>
               <p className="text-2xl font-bold text-zinc-900">
-                {formatCurrency(currentStats.totalInvestments)}
+                {formatDualCurrency(currentStats.totalInvestments, 'CNY')}
               </p>
             </div>
             <div>
-              <p className="text-sm text-zinc-500 mb-1">可用现金</p>
+              <p className="text-sm text-zinc-500 mb-1">现金</p>
               <p className="text-2xl font-bold text-blue-600">
-                {formatCurrency(currentStats.totalCash)}
+                {formatDualCurrency(currentStats.totalCash, 'CNY')}
               </p>
             </div>
             <div>
-              <p className="text-sm text-zinc-500 mb-1">累计收益</p>
+              <p className="text-sm text-zinc-500 mb-1">累计变动</p>
               <p className={`text-2xl font-bold ${
                 currentStats.totalChange >= 0 ? 'text-red-500' : 'text-green-600'
               }`}>
-                {currentStats.totalChange >= 0 ? '+' : '-'}{formatCurrency(currentStats.totalChange)}
+                {currentStats.totalChange >= 0 ? '+' : '-'}{formatDualCurrency(Math.abs(currentStats.totalChange), 'CNY')}
               </p>
             </div>
           </div>
@@ -277,6 +295,26 @@ export default function SnapshotsPage() {
             </div>
           )}
         </div>
+
+        <section className="grid gap-3 md:grid-cols-2">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <p className="text-sm font-medium text-zinc-900">资产变化</p>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">快照总资产的变化，包含外部入金和取现，因此不等同于投资收益。</p>
+          </div>
+          <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-zinc-900">现金流调整后表现</p>
+                <p className="mt-1 text-xs leading-5 text-zinc-500">从快照变化中剔除可识别的外部资金流；内部转账不计入。</p>
+              </div>
+              <p className="text-lg font-semibold text-blue-700 whitespace-nowrap">
+                {adjustedPerformance?.cumulativeReturnPercent != null
+                  ? formatPercent(adjustedPerformance.cumulativeReturnPercent)
+                  : '数据不足'}
+              </p>
+            </div>
+          </div>
+        </section>
 
         {/* Trend Chart */}
         {snapshots.length >= 2 && (
@@ -383,13 +421,13 @@ export default function SnapshotsPage() {
                         )}
                       </div>
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-500">
-                        <span>持仓: {formatCurrency(snapshot.investments)}</span>
-                        <span>现金: {formatCurrency(snapshot.cash)}</span>
+                        <span>持仓: {formatDualCurrency(snapshot.investments, 'CNY')}</span>
+                        <span>现金: {formatDualCurrency(snapshot.cash, 'CNY')}</span>
                       </div>
                     </div>
                     <div className="text-right ml-4 space-y-1">
                       <p className="text-lg font-semibold text-zinc-900">
-                        {formatCurrency(snapshot.totalValue)}
+                        {formatDualCurrency(snapshot.totalValue, 'CNY')}
                       </p>
                       <div className={`flex items-center justify-end gap-2 text-sm ${dailyColor}`}>
                         <span>{snapshot.dailyChange >= 0 ? '+' : ''}{formatCurrency(snapshot.dailyChange)}</span>
@@ -411,20 +449,20 @@ export default function SnapshotsPage() {
                             <div>
                               <span className="text-zinc-500">资产变化</span>
                               <p className={`font-medium ${comparison.valueChange >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                                {comparison.valueChange >= 0 ? '+' : ''}{formatCurrency(comparison.valueChange)}
+                                {comparison.valueChange >= 0 ? '+' : ''}{formatDualCurrency(Math.abs(comparison.valueChange), 'CNY')}
                                 <span className="text-xs ml-1">({formatPercent(comparison.valueChangePercent)})</span>
                               </p>
                             </div>
                             <div>
                               <span className="text-zinc-500">持仓变化</span>
                               <p className={`font-medium ${comparison.investChange >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                                {comparison.investChange >= 0 ? '+' : ''}{formatCurrency(comparison.investChange)}
+                                {comparison.investChange >= 0 ? '+' : ''}{formatDualCurrency(Math.abs(comparison.investChange), 'CNY')}
                               </p>
                             </div>
                             <div>
                               <span className="text-zinc-500">现金变化</span>
                               <p className={`font-medium ${comparison.cashChange >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                                {comparison.cashChange >= 0 ? '+' : ''}{formatCurrency(comparison.cashChange)}
+                                {comparison.cashChange >= 0 ? '+' : ''}{formatDualCurrency(Math.abs(comparison.cashChange), 'CNY')}
                               </p>
                             </div>
                           </div>
@@ -485,7 +523,7 @@ export default function SnapshotsPage() {
                                   <div className="flex items-center gap-4 text-zinc-500">
                                     <span>{pv.quantity}</span>
                                     <span className={pv.pnl >= 0 ? 'text-red-500' : 'text-green-600'}>
-                                      {pv.pnl >= 0 ? '+' : ''}{formatCurrency(pv.pnl)}
+                                      {pv.pnl >= 0 ? '+' : ''}{formatDualCurrency(Math.abs(pv.pnl), 'CNY')}
                                     </span>
                                   </div>
                                 </div>
@@ -575,13 +613,13 @@ export default function SnapshotsPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-zinc-500">总资产</span>
                   <span className="text-lg font-semibold text-zinc-900">
-                    {formatCurrency(currentStats.totalValue)}
+                    {formatDualCurrency(currentStats.totalValue, 'CNY')}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-zinc-500">持仓 + 现金</span>
                   <span className="text-zinc-700">
-                    {formatCurrency(currentStats.totalInvestments)} + {formatCurrency(currentStats.totalCash)}
+                    {formatDualCurrency(currentStats.totalInvestments, 'CNY')} + {formatDualCurrency(currentStats.totalCash, 'CNY')}
                   </span>
                 </div>
               </div>

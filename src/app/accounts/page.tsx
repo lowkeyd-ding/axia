@@ -1,13 +1,14 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import type { Account } from '@/types';
 import * as XLSX from 'xlsx';
 import { useFxRates } from '@/lib/hooks/useFxRates';
 import { useAccountPnLStats, computeAccountPnLRaw, type PnLStats } from '@/lib/hooks/usePnLStats';
 import { convertToAccountCNY, getEffectiveCurrency, inferCurrencyFromSymbol } from '@/lib/fx';
-import { formatCurrency } from '@/utils/format';
+import { formatCurrency, formatDualCurrency } from '@/utils/format';
 import type { FxRates } from '@/lib/fx';
 
 const ACCOUNT_TYPES = [
@@ -53,6 +54,8 @@ const initialFormData: FormData = {
 };
 
 export default function AccountsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { accounts, positions, addAccount, updateAccount, deleteAccount, addTransfer, transfers, exportData, importData } = useAppStore();
   const { rates: fxRates } = useFxRates();
 
@@ -246,7 +249,7 @@ export default function AccountsPage() {
     return convertToAccountCNY(position.currentPrice * position.quantity, posCcy, 'CNY', fxRates);
   };
 
-  const getPositionValueNative = (position: { currency?: string; currentPrice: number; quantity: number; accountId: string }) => {
+  const getPositionValueNative = (position: { currentPrice: number; quantity: number }) => {
     return position.currentPrice * position.quantity;
   };
 
@@ -511,39 +514,38 @@ export default function AccountsPage() {
     setErrors({});
     setEditingAccountId(null);
     setIsModalOpen(false);
+    if (searchParams.get('new') === '1') {
+      router.replace('/accounts');
+    }
   };
 
-  const totalValueCNY = accounts.reduce((sum, acc) => {
-    return sum + getAccountValue(acc.id);
+  const totalValueCNY = accounts.reduce((sum, acc) => sum + getAccountValue(acc.id), 0);
+  const totalNativeValue = accounts.reduce((sum, acc) => {
+    const accountValueNative = acc.balance + getAccountPositions(acc.id).reduce((posSum, p) => posSum + p.currentPrice * p.quantity, 0);
+    return sum + accountValueNative;
   }, 0);
 
-  const hkdTotal = accounts
-    .filter((acc) => acc.currency === 'HKD')
-    .reduce((sum, acc) => {
-      const value = getAccountValue(acc.id);
-      return sum + value;
-    }, 0);
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setIsModalOpen(true);
+    }
+  }, [searchParams]);
 
   return (
-    <div className="flex flex-col min-h-screen bg-zinc-50 text-zinc-900">
-      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-zinc-200 shadow-sm">
+    <div className="flex flex-col min-h-screen bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.06),transparent_24%),linear-gradient(to_bottom,#fafafa,#f8fafc)] text-zinc-900">
+      <header className="border-b border-white/60 bg-white/75 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.6),0_8px_30px_rgba(24,24,27,0.04)]">
         <div className="max-w-4xl mx-auto px-4 py-5">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">我的账户</h1>
               {accounts.length > 0 && (
                 <p className="mt-1 text-sm text-zinc-500">
-                  共 {accounts.length} 个账户，持仓总市值（CNY）{' '}
-                  <span className="text-blue-600 font-medium">{formatCurrency(totalValueCNY, 'CNY')}</span>
-                  {hkdTotal > 0 && (
-                    <span className="ml-2">
-                      ，港币汇总 <span className="text-emerald-600 font-medium">HK${hkdTotal.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </span>
-                  )}
+                  共 {accounts.length} 个账户，资产总览{' '}
+                  <span className="text-blue-600 font-medium">{formatDualCurrency(totalNativeValue, 'CNY', totalValueCNY)}</span>
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 shrink-0">
               <button
                 onClick={() => setIsTransferModalOpen(true)}
                 className="flex items-center gap-2 px-3 py-1.5 text-sm text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors"
@@ -630,7 +632,7 @@ export default function AccountsPage() {
               return (
                 <div
                   key={account.id}
-                  className="bg-white border border-zinc-200 rounded-xl overflow-hidden hover:border-zinc-300 hover:shadow-sm transition-colors"
+                  className="bg-white/85 backdrop-blur border border-white/60 rounded-2xl overflow-hidden shadow-[0_10px_30px_rgba(24,24,27,0.05)] hover:shadow-[0_16px_40px_rgba(24,24,27,0.08)] transition-all"
                 >
                   {/* Clickable header */}
                   <button
@@ -703,18 +705,18 @@ export default function AccountsPage() {
                         </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
                       <div className="text-right">
                         <p className="text-lg font-semibold text-zinc-900">
-                          {formatByCurrency(totalAssetsNative, account.currency)}
+                          {formatDualCurrency(totalAssetsNative, account.currency, totalAssets)}
                         </p>
                         <div className="flex items-center justify-end gap-2 text-xs">
                           <span className="text-zinc-400">
-                            持仓: {formatByCurrency(valueNative, account.currency)}
+                            持仓: {formatDualCurrency(valueNative, account.currency, value)}
                           </span>
                           <span className="text-zinc-300">|</span>
                           <span className="text-blue-500/80">
-                            余额: {formatByCurrency(balanceNative, account.currency)}
+                            余额: {formatDualCurrency(balanceNative, account.currency, balanceCNY)}
                           </span>
                         </div>
                         <div className="mt-1 flex items-center justify-end gap-3 text-xs">
@@ -798,7 +800,6 @@ export default function AccountsPage() {
                             const { pnl, pnlPercent } = getPositionPnL(position);
                             const pnlColor = pnl >= 0 ? 'text-red-500' : 'text-green-600';
                             const positionCurrency = position.currency || inferCurrencyFromSymbol(position.symbol);
-                            const displayCurrency = positionCurrency === 'CNY' ? account.currency : positionCurrency;
 
                             return (
                               <div key={position.id} className="px-4 py-3 flex items-center justify-between">
@@ -812,7 +813,7 @@ export default function AccountsPage() {
                                 </div>
                                 <div className="text-right ml-4">
                                   <p className="text-sm font-medium text-zinc-900">
-                                    {formatCurrency(positionValueCNY, 'CNY')}
+                                    {formatDualCurrency(getPositionValueNative(position), positionCurrency, positionValueCNY)}
                                   </p>
                                   <p className={`text-xs ${pnlColor}`}>
                                     {pnl >= 0 ? '+' : ''}{formatCurrency(pnl, 'CNY')} ({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)

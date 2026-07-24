@@ -320,8 +320,8 @@ async function fetchHKFromEastMoney(symbol: string): Promise<PriceData | null> {
 function getExchange(symbol: string): string {
   const upper = symbol.toUpperCase();
   if (/\.OF$/i.test(upper)) return 'FUND_OF';
-  // ETF funds: 5xxxxx (SH), 1xxxxx/15xxxx (SZ like 159919, 159915)
-  if (/^(5|1|15)\d{5}$/.test(upper)) return 'FUND';
+  // Exchange-traded funds: 5xxxxx (SH), 15xxxx/16xxxx/18xxxx (SZ).
+  if (/^(?:5\d{5}|1(?:5|6|8)\d{4})$/.test(upper)) return 'FUND';
   if (/^[023]\d{5}$/.test(upper)) return 'SZ';
   if (/^[569]\d{5}$/.test(upper)) return 'SH';
   if (/^\d{5}$/.test(upper)) return 'HK';

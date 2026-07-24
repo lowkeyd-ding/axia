@@ -13,6 +13,7 @@ import {
   Lot,
 } from '@/types';
 import { syncToCloud as cloudSyncToCloud, loadFromCloud as cloudLoadFromCloud } from './sync';
+import { getBusinessDate, getBusinessMonth, getBusinessYear } from './businessDate';
 
 // Debounce timer for syncing - 移入 store 内部以便更好地管理
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -34,16 +35,19 @@ async function loadFromCloudData(state: Partial<AppState>) {
   try {
     const cloudData = await cloudLoadFromCloud();
     if (cloudData) {
+      const local = useAppStore.getState();
+      const cloudChanged = Boolean(cloudData.updatedAt && local._lastCloudUpdatedAt && cloudData.updatedAt !== local._lastCloudUpdatedAt);
+      if (local._hasUnsyncedChanges && cloudChanged) {
+        useAppStore.setState({ _syncStatus: 'conflict', _syncError: '云端和本地都有新改动，请选择保留版本。', _pendingCloudData: cloudData.data, _pendingCloudUpdatedAt: cloudData.updatedAt });
+        return;
+      }
       console.log('[CloudSync] Found cloud data, updating store');
+      const payload = cloudData.data;
       useAppStore.setState({
-        accounts: cloudData.accounts || [],
-        positions: cloudData.positions || [],
-        snapshots: cloudData.snapshots || [],
-        trades: cloudData.trades || [],
-        transfers: cloudData.transfers || [],
-        targetAllocations: cloudData.targetAllocations || [],
-        lots: cloudData.lots || [],
-        _lastSyncedAt: new Date().toISOString(),
+        accounts: payload.accounts || [], positions: payload.positions || [], snapshots: payload.snapshots || [], trades: payload.trades || [],
+        transfers: payload.transfers || [], targetAllocations: payload.targetAllocations || [], lots: payload.lots || [],
+        _lastSyncedAt: new Date().toISOString(), _lastCloudUpdatedAt: cloudData.updatedAt,
+        _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null,
       });
       // Migration: backfill lots for positions loaded from cloud that have no lots
       setTimeout(() => {
@@ -93,13 +97,13 @@ function roundCurrency(value: number): number {
 
 // Snapshot helpers — check if date boundaries have changed
 function todayDate(): string {
-  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  return getBusinessDate();
 }
 function todayMonth(): string {
-  return new Date().toISOString().slice(0, 7); // YYYY-MM
+  return getBusinessMonth();
 }
 function todayYear(): string {
-  return new Date().getFullYear().toString(); // YYYY
+  return getBusinessYear();
 }
 
 // Capture period baseline — called when date boundary changes, locks the price for that period
@@ -189,6 +193,13 @@ interface AppState {
   // Sync state
   _hasLoadedFromCloud: boolean;
   _lastSyncedAt: string | null;
+  _lastCloudUpdatedAt: string | null;
+  _hasUnsyncedChanges: boolean;
+  _syncStatus: 'local' | 'syncing' | 'synced' | 'dirty' | 'error' | 'conflict';
+  _syncError: string | null;
+  _pendingCloudData: import('./sync').CloudSyncData | null;
+  _pendingCloudUpdatedAt: string | null;
+  resolveSyncConflict: (choice: 'cloud' | 'local') => Promise<boolean>;
 
   // Account actions
   addAccount: (account: Omit<Account, 'id' | 'createdAt' | 'updatedAt'>) => ActionResult<Account>;
@@ -260,6 +271,26 @@ export const useAppStore = create<AppState>()(
   lots: [],
   _hasLoadedFromCloud: false,
   _lastSyncedAt: null,
+  _lastCloudUpdatedAt: null,
+  _hasUnsyncedChanges: false,
+  _syncStatus: 'local',
+  _syncError: null,
+  _pendingCloudData: null,
+  _pendingCloudUpdatedAt: null,
+
+  resolveSyncConflict: async (choice) => {
+    const state = get();
+    if (choice === 'cloud' && state._pendingCloudData) {
+      const d = state._pendingCloudData;
+      set({ accounts: d.accounts || [], positions: d.positions || [], snapshots: d.snapshots || [], trades: d.trades || [], transfers: d.transfers || [], targetAllocations: d.targetAllocations || [], lots: d.lots || [], _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null, _lastCloudUpdatedAt: state._pendingCloudUpdatedAt, _pendingCloudData: null, _pendingCloudUpdatedAt: null });
+      return true;
+    }
+    if (choice === 'local') {
+      set({ _pendingCloudData: null, _pendingCloudUpdatedAt: null });
+      return get().forceSyncNow();
+    }
+    return false;
+  },
 
   // Cloud sync
   syncToCloud: async () => {
@@ -296,6 +327,7 @@ export const useAppStore = create<AppState>()(
       clearTimeout(syncTimer);
       syncTimer = null;
     }
+    set({ _syncStatus: 'syncing', _syncError: null });
     const state = get();
     const data = {
       accounts: state.accounts,
@@ -308,7 +340,10 @@ export const useAppStore = create<AppState>()(
     };
     const success = await cloudSyncToCloud(data);
     if (success) {
-      set({ _lastSyncedAt: new Date().toISOString() });
+      const now = new Date().toISOString();
+      set({ _lastSyncedAt: now, _lastCloudUpdatedAt: now, _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null });
+    } else {
+      set({ _hasUnsyncedChanges: true, _syncStatus: 'error', _syncError: '同步失败，本地数据已保留，可稍后重试。' });
     }
     return success;
   },
@@ -318,17 +353,18 @@ export const useAppStore = create<AppState>()(
 
     const cloudData = await cloudLoadFromCloud();
     if (cloudData) {
-      console.log('[CloudSync] Loaded from cloud:', cloudData);
+      const state = get();
+      const cloudChanged = Boolean(cloudData.updatedAt && state._lastCloudUpdatedAt && cloudData.updatedAt !== state._lastCloudUpdatedAt);
+      if (state._hasUnsyncedChanges && cloudChanged) {
+        set({ _hasLoadedFromCloud: true, _syncStatus: 'conflict', _syncError: '云端和本地都有新改动，请选择保留版本。', _pendingCloudData: cloudData.data, _pendingCloudUpdatedAt: cloudData.updatedAt });
+        return false;
+      }
+      const payload = cloudData.data;
       set({
-        accounts: cloudData.accounts || [],
-        positions: cloudData.positions || [],
-        snapshots: cloudData.snapshots || [],
-        trades: cloudData.trades || [],
-        transfers: cloudData.transfers || [],
-        targetAllocations: cloudData.targetAllocations || [],
-        lots: cloudData.lots || [],
-        _hasLoadedFromCloud: true,
-        _lastSyncedAt: new Date().toISOString(),
+        accounts: payload.accounts || [], positions: payload.positions || [], snapshots: payload.snapshots || [], trades: payload.trades || [],
+        transfers: payload.transfers || [], targetAllocations: payload.targetAllocations || [], lots: payload.lots || [],
+        _hasLoadedFromCloud: true, _lastSyncedAt: new Date().toISOString(), _lastCloudUpdatedAt: cloudData.updatedAt,
+        _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null,
       });
       // Migration: backfill lots for positions loaded from cloud that have no lots
       setTimeout(() => {
@@ -409,9 +445,9 @@ export const useAppStore = create<AppState>()(
   // Position actions
   addPosition: (positionData) => {
     const now = new Date();
-    const date = now.toISOString().slice(0, 10);
-    const month = now.toISOString().slice(0, 7);
-    const year = now.getFullYear().toString();
+    const date = getBusinessDate(now);
+    const month = getBusinessMonth(now);
+    const year = getBusinessYear(now);
     const price = roundPrice(positionData.currentPrice);
     const createdAt = getNow();
     // Use provided buyDate or fall back to today
@@ -690,9 +726,9 @@ export const useAppStore = create<AppState>()(
             dailyBasePrice: price,
             monthlyBasePrice: price,
             yearlyBasePrice: price,
-            dailyBaseDate: now.toISOString().slice(0, 10),
-            monthlyBaseMonth: now.toISOString().slice(0, 7),
-            yearlyBaseYear: now.getFullYear().toString(),
+            dailyBaseDate: getBusinessDate(now),
+            monthlyBaseMonth: getBusinessMonth(now),
+            yearlyBaseYear: getBusinessYear(now),
             createdAt: getNow(),
             updatedAt: getNow(),
           };
@@ -1092,7 +1128,12 @@ export const useAppStore = create<AppState>()(
         trades: [...trades].sort(
           (a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime()
         ),
+        transfers: Array.isArray(parsed.data.transfers) ? parsed.data.transfers : [],
+        lots: Array.isArray(parsed.data.lots) ? parsed.data.lots : [],
         targetAllocations,
+        _hasUnsyncedChanges: true,
+        _syncStatus: 'dirty',
+        _syncError: null,
       });
 
       scheduleCloudSync();
@@ -1118,6 +1159,10 @@ export const useAppStore = create<AppState>()(
         targetAllocations: state.targetAllocations,
         lots: state.lots,
         _lastSyncedAt: state._lastSyncedAt,
+        _lastCloudUpdatedAt: state._lastCloudUpdatedAt,
+        _hasUnsyncedChanges: state._hasUnsyncedChanges,
+        _syncStatus: state._syncStatus,
+        _syncError: state._syncError,
       }),
       onRehydrateStorage: () => (state) => {
         // 数据从 localStorage 恢复后，在下一个事件循环中加载云端数据

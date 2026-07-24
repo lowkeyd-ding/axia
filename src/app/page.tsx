@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   PieChart,
   Pie,
@@ -22,7 +23,9 @@ import { useFxRates } from '@/lib/hooks/useFxRates';
 import { usePnLStats } from '@/lib/hooks/usePnLStats';
 import { convertToAccountCNY, getEffectiveCurrency } from '@/lib/fx';
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
-import { formatCurrency, formatPercent } from '@/utils/format';
+import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
+import { computeCashFlowAdjustedPerformance } from '@/lib/performance';
+import { BENCHMARK_META } from '@/lib/benchmark';
 
 const ASSET_COLORS = [
   '#3b82f6', // blue - stock
@@ -51,23 +54,13 @@ const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
 ];
 
 // 基准指数选项
-type Benchmark = 'none' | '000300' | '399006' | 'sp500' | 'hsi';
-const BENCHMARK_OPTIONS: { value: Benchmark; label: string; color: string }[] = [
-  { value: 'none', label: '无', color: '#71717a' },
-  { value: '000300', label: '沪深300', color: '#f59e0b' },
-  { value: '399006', label: '创业板', color: '#8b5cf6' },
-  { value: 'sp500', label: '标普500', color: '#3b82f6' },
-  { value: 'hsi', label: '恒生指数', color: '#06b6d4' },
-];
-
-// 模拟基准指数数据（实际项目中应从API获取）
-const BENCHMARK_DATA: Record<Benchmark, { startDate: string; startValue: number; monthlyChange: number[] }> = {
-  none: { startDate: '', startValue: 100, monthlyChange: [] },
-  '000300': { startDate: '2024-01-01', startValue: 100, monthlyChange: [2.1, 1.3, -0.8, 1.9, 0.5, -2.1, 1.2, 0.8, -1.5, 2.3, 1.1, 0.7] },
-  '399006': { startDate: '2024-01-01', startValue: 100, monthlyChange: [3.5, 2.1, -1.2, 2.8, 0.9, -3.5, 2.0, 1.5, -2.2, 3.1, 1.8, 1.2] },
-  'sp500': { startDate: '2024-01-01', startValue: 100, monthlyChange: [1.6, 2.3, 1.1, 0.8, 1.5, -0.5, 2.1, 1.3, -0.9, 1.7, 2.0, 1.4] },
-  'hsi': { startDate: '2024-01-01', startValue: 100, monthlyChange: [-1.2, 3.5, 0.8, 2.1, -0.6, -2.8, 1.5, 2.2, -1.8, 1.3, 0.9, 1.1] },
-};
+const BENCHMARK_OPTIONS = BENCHMARK_META.map((item) => ({
+  value: item.id,
+  label: item.name,
+  color: item.historyComplete ? '#3b82f6' : '#71717a',
+  disabled: !item.historyComplete,
+  reason: item.disabledReason || '暂无可验证的基准历史数据',
+}));
 
 interface YieldDataPoint {
   date: string;
@@ -87,53 +80,52 @@ interface AssetAllocation {
 }
 
 export default function HomePage() {
-  const { accounts, positions, snapshots } = useAppStore();
+  const router = useRouter();
+  const { accounts, positions, snapshots, transfers } = useAppStore();
   const [timeRange, setTimeRange] = useState<TimeRange>('thisYear');
-  const [benchmark, setBenchmark] = useState<Benchmark>('none');
   const { rates: fxRates } = useFxRates();
   const pnlStats = usePnLStats();
 
   const totalStats = useMemo(() => {
-    let totalValueCNY = 0;
-    let totalCostBasis = 0;
+    let totalInvestCNY = 0;
     let totalCashCNY = 0;
+    let totalCostBasis = 0;
 
-    // 现金余额折算：账户币种 ≠ CNY → 现汇卖出价换算
     accounts.forEach((account) => {
       const acctCcy = account.currency || 'CNY';
-      const cashValue = convertToAccountCNY(account.balance, acctCcy, 'CNY', fxRates);
-      totalCashCNY += cashValue;
+      totalCashCNY += convertToAccountCNY(account.balance, acctCcy, 'CNY', fxRates);
     });
 
-    // 持仓市值 + 成本折算：统一走 convertToAccountCNY
     positions.forEach((p) => {
       const account = accounts.find((a) => a.id === p.accountId);
       const acctCcy = account?.currency || 'CNY';
       const posCcy = getEffectiveCurrency(p.currency, acctCcy);
-
-      const value = convertToAccountCNY(p.currentPrice * p.quantity, posCcy, 'CNY', fxRates);
-      const cost  = convertToAccountCNY(p.avgCost * p.quantity, posCcy, 'CNY', fxRates);
-      totalValueCNY += value;
-      totalCostBasis += cost;
+      totalInvestCNY += convertToAccountCNY(p.currentPrice * p.quantity, posCcy, 'CNY', fxRates);
+      totalCostBasis += convertToAccountCNY(p.avgCost * p.quantity, posCcy, 'CNY', fxRates);
     });
 
-    const totalAssetsCNY = totalCashCNY + totalValueCNY;
-    const totalPnL = totalValueCNY - totalCostBasis;
-    const pnlPercent = totalCostBasis > 0 ? (totalPnL / totalCostBasis) * 100 : 0;
-
-    return { totalValueCNY: totalAssetsCNY, totalInvestCNY: totalValueCNY, totalCashCNY, totalPnL, pnlPercent };
+    return {
+      totalAssetsCNY: totalInvestCNY + totalCashCNY,
+      totalInvestCNY,
+      totalCashCNY,
+      assetPnL: totalInvestCNY - totalCostBasis,
+      pnlPercent: totalCostBasis > 0 ? ((totalInvestCNY - totalCostBasis) / totalCostBasis) * 100 : 0,
+    };
   }, [accounts, positions, fxRates]);
 
-  // 计算收益率曲线数据
+  const adjustedPerformance = useMemo(
+    () => computeCashFlowAdjustedPerformance(snapshots, transfers),
+    [snapshots, transfers]
+  );
+
+  // 资产变化曲线：包含外部资金流，不代表投资回报
   const yieldCurveData = useMemo((): YieldDataPoint[] => {
     if (snapshots.length === 0) return [];
 
-    // 按日期排序快照
     const sortedSnapshots = [...snapshots].sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
 
-    // 确定时间范围
     const now = new Date();
     const startDate = new Date();
     switch (timeRange) {
@@ -151,19 +143,13 @@ export default function HomePage() {
         break;
     }
 
-    // 筛选时间范围内的快照
-    const filteredSnapshots = sortedSnapshots.filter(
-      (s) => new Date(s.date) >= startDate
-    );
-
+    const filteredSnapshots = sortedSnapshots.filter((s) => new Date(s.date) >= startDate);
     if (filteredSnapshots.length === 0) return [];
 
-    // 初始值（基准100）
     const initialValue = filteredSnapshots[0].totalValue;
     if (initialValue <= 0) return [];
 
-    // 生成数据点
-    const dataPoints: YieldDataPoint[] = filteredSnapshots.map((snapshot) => {
+    return filteredSnapshots.map((snapshot) => {
       const yieldPercent = ((snapshot.totalValue / initialValue) - 1) * 100;
       const dateObj = new Date(snapshot.date);
       return {
@@ -172,67 +158,44 @@ export default function HomePage() {
         portfolio: parseFloat(yieldPercent.toFixed(2)),
       };
     });
-
-    // 添加基准指数数据
-    if (benchmark !== 'none') {
-      const benchData = BENCHMARK_DATA[benchmark];
-      const benchStartDate = new Date(benchData.startDate);
-      const benchInitialValue = benchData.startValue;
-
-      // 生成与快照对应的基准数据
-      dataPoints.forEach((point) => {
-        const pointDate = new Date(point.date);
-        if (pointDate >= benchStartDate) {
-          const monthsDiff = (pointDate.getFullYear() - benchStartDate.getFullYear()) * 12 +
-            (pointDate.getMonth() - benchStartDate.getMonth());
-          let benchValue = benchInitialValue;
-          for (let i = 0; i < Math.min(monthsDiff, benchData.monthlyChange.length); i++) {
-            benchValue *= (1 + benchData.monthlyChange[i] / 100);
-          }
-          point.benchmark = parseFloat(((benchValue / benchInitialValue - 1) * 100).toFixed(2));
-        }
-      });
-    }
-
-    return dataPoints;
-  }, [snapshots, timeRange, benchmark]);
+  }, [snapshots, timeRange]);
 
   // 计算当前收益率
   const currentYield = useMemo(() => {
-    if (yieldCurveData.length < 2) return { portfolio: 0, benchmark: 0 };
-    const last = yieldCurveData[yieldCurveData.length - 1];
-    return {
-      portfolio: last.portfolio,
-      benchmark: last.benchmark ?? 0,
-    };
+    if (yieldCurveData.length < 2) return 0;
+    return yieldCurveData[yieldCurveData.length - 1].portfolio;
   }, [yieldCurveData]);
 
   const assetAllocations = useMemo((): AssetAllocation[] => {
-    const allocationMap = new Map<AssetType, { value: number }>();
-
+    const allocationMap = new Map<string, { type: AssetType; name: string; value: number }>();
     (['stock', 'fund', 'bank_wealth_management', 'bank_cash'] as AssetType[]).forEach((type) => {
-      allocationMap.set(type, { value: 0 });
+      allocationMap.set(type, { type, name: ASSET_TYPE_CONFIG[type].label, value: 0 });
+    });
+    allocationMap.set('cash', { type: 'bank_cash', name: '现金', value: 0 });
+
+    accounts.forEach((account) => {
+      const acctCcy = account.currency || 'CNY';
+      const cashValue = convertToAccountCNY(account.balance, acctCcy, 'CNY', fxRates);
+      const cash = allocationMap.get('cash');
+      if (cash) cash.value += cashValue;
     });
 
     positions.forEach((position) => {
       const account = accounts.find((a) => a.id === position.accountId);
       if (!account) return;
-
       const acctCcy = account.currency || 'CNY';
-      const posCcy  = getEffectiveCurrency(position.currency, acctCcy);
+      const posCcy = getEffectiveCurrency(position.currency, acctCcy);
       const value = convertToAccountCNY(position.currentPrice * position.quantity, posCcy, 'CNY', fxRates);
-
       const existing = allocationMap.get(position.assetType);
       if (existing) existing.value += value;
     });
 
     const totalValue = Array.from(allocationMap.values()).reduce((sum, a) => sum + a.value, 0);
-
-    return Array.from(allocationMap.entries())
-      .filter(([, data]) => data.value > 0)
-      .map(([type, data]) => ({
-        type,
-        name: ASSET_TYPE_CONFIG[type].label,
+    return Array.from(allocationMap.values())
+      .filter((data) => data.value > 0)
+      .map((data) => ({
+        type: data.type,
+        name: data.name,
         value: data.value,
         percentage: totalValue > 0 ? (data.value / totalValue) * 100 : 0,
       }));
@@ -258,7 +221,7 @@ export default function HomePage() {
       const balanceCNY = convertToAccountCNY(account.balance, acctCcy, 'CNY', fxRates);
       const valueCNY = balanceCNY + investValueCNY;
 
-      const percentage = totalStats.totalValueCNY > 0 ? (valueCNY / totalStats.totalValueCNY) * 100 : 0;
+      const percentage = totalStats.totalAssetsCNY > 0 ? (valueCNY / totalStats.totalAssetsCNY) * 100 : 0;
 
       return {
         id: account.id,
@@ -272,9 +235,47 @@ export default function HomePage() {
         percentage,
       };
     });
-  }, [accounts, positions, totalStats.totalValueCNY, fxRates]);
+  }, [accounts, positions, totalStats.totalAssetsCNY, fxRates]);
 
-  const hasData = accounts.length > 0 && positions.length > 0;
+  const hasAccounts = accounts.length > 0;
+  const hasPositions = positions.length > 0;
+  const hasSnapshots = snapshots.length > 0;
+  const hasVisibleData = hasAccounts && (hasPositions || totalStats.totalCashCNY > 0);
+  const refreshablePositions = useMemo(() => {
+    return positions.filter((position) => {
+      const account = accounts.find((a) => a.id === position.accountId);
+      const acctCcy = account?.currency || 'CNY';
+      const posCcy = getEffectiveCurrency(position.currency, acctCcy);
+      return convertToAccountCNY(position.currentPrice * position.quantity, posCcy, 'CNY', fxRates) > 0;
+    });
+  }, [accounts, positions, fxRates]);
+  const topHolding = useMemo(() => {
+    let best = null as null | { name: string; ratio: number };
+    if (totalStats.totalInvestCNY <= 0) return best;
+    positions.forEach((position) => {
+      const account = accounts.find((a) => a.id === position.accountId);
+      const acctCcy = account?.currency || 'CNY';
+      const posCcy = getEffectiveCurrency(position.currency, acctCcy);
+      const value = convertToAccountCNY(position.currentPrice * position.quantity, posCcy, 'CNY', fxRates);
+      const ratio = value / totalStats.totalInvestCNY;
+      if (!best || ratio > best.ratio) best = { name: position.name, ratio };
+    });
+    return best;
+  }, [accounts, positions, fxRates, totalStats.totalInvestCNY]);
+  const needAttention = useMemo(() => {
+    const items: string[] = [];
+    if (positions.some((p) => p.currentPrice <= 0)) {
+      items.push('部分持仓尚未刷新行情，可前往持仓页更新。');
+    }
+    if (topHolding && topHolding.ratio > 0.4) {
+      items.push(`持仓集中度较高，${topHolding.name} 占投资资产比重较大。`);
+    }
+    if (totalStats.totalAssetsCNY > 0 && totalStats.totalCashCNY / totalStats.totalAssetsCNY > 0.3) {
+      items.push('现金占比较高，可根据你的记账节奏持续关注资产配置。');
+    }
+    return items.slice(0, 3);
+  }, [positions, topHolding, totalStats.totalAssetsCNY, totalStats.totalCashCNY]);
+  const openRoute = (path: string) => router.push(path);
 
   // 计算盈亏颜色 (A股红涨绿跌)
   const getPnLColor = (value: number) => {
@@ -284,61 +285,116 @@ export default function HomePage() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-zinc-50 text-zinc-900">
+    <div className="flex flex-col min-h-screen bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.08),transparent_30%),linear-gradient(to_bottom,#fafafa,#f8fafc)] text-zinc-900">
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 space-y-6">
         {/* 总览区 */}
-        <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="text-center md:text-left">
-              <p className="text-sm text-zinc-500 mb-2">持仓总市值（CNY）</p>
-              <p className="text-3xl font-bold text-zinc-900">
-                {hasData ? formatCurrency(totalStats.totalValueCNY) : '¥0.00'}
+        <div className="relative overflow-hidden bg-white/80 backdrop-blur border border-white/60 rounded-[28px] p-6 shadow-[0_12px_40px_rgba(24,24,27,0.06)]">
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-200 to-transparent" />
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-200 to-transparent" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative">
+            <div className="md:col-span-1">
+              <p className="text-sm text-zinc-500 mb-2">总资产</p>
+              <p className="text-3xl font-bold text-zinc-900 leading-tight">
+                {hasVisibleData ? formatDualCurrency(totalStats.totalAssetsCNY, 'CNY') : '¥0.00'}
               </p>
+              <p className="mt-2 text-xs text-zinc-500">包含现金与持仓市值</p>
             </div>
-            <div className="text-center md:border-x md:border-zinc-200">
-              <p className="text-sm text-zinc-500 mb-2">总浮盈亏</p>
-              <p className={`text-3xl font-bold ${getPnLColor(totalStats.totalPnL)}`}>
-                {hasData ? (
+            <div className="md:col-span-1 md:border-x md:border-zinc-200 md:px-6">
+              <p className="text-sm text-zinc-500 mb-2">投资盈亏</p>
+              <p className={`text-3xl font-bold leading-tight ${getPnLColor(totalStats.assetPnL)}`}>
+                {hasVisibleData ? (
                   <>
-                    {totalStats.totalPnL >= 0 ? '+' : '-'}
-                    {formatCurrency(totalStats.totalPnL)}
+                    {totalStats.assetPnL >= 0 ? '+' : '-'}{formatDualCurrency(Math.abs(totalStats.assetPnL), 'CNY')}
                   </>
                 ) : (
                   <span className="text-zinc-400">¥0.00</span>
                 )}
               </p>
+              <p className="mt-2 text-xs text-zinc-500">仅统计持仓收益，不含现金变动</p>
             </div>
-            <div className="text-center md:text-right">
-              <p className="text-sm text-zinc-500 mb-2">浮盈亏%</p>
-              <p className={`text-3xl font-bold ${getPnLColor(totalStats.pnlPercent)}`}>
-                {hasData ? formatPercent(totalStats.pnlPercent) : '0.00%'}
+            <div className="md:col-span-1 md:text-right">
+              <p className="text-sm text-zinc-500 mb-2">投资盈亏率</p>
+              <p className={`text-3xl font-bold leading-tight ${getPnLColor(totalStats.pnlPercent)}`}>
+                {hasVisibleData ? formatPercent(totalStats.pnlPercent) : '0.00%'}
               </p>
+              <p className="mt-2 text-xs text-zinc-500">相对持仓成本的变动幅度</p>
             </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-zinc-800">现金流调整后表现</p>
+              <p className="mt-1 text-xs text-zinc-500">尽可能剔除外部入金和取现；至少需要两次不同日期的快照。</p>
+            </div>
+            {adjustedPerformance?.cumulativeReturnPercent != null ? (
+              <p className={`text-xl font-semibold whitespace-nowrap ${getPnLColor(adjustedPerformance.cumulativeReturnPercent)}`}>
+                {formatPercent(adjustedPerformance.cumulativeReturnPercent)}
+              </p>
+            ) : (
+              <Link href="/snapshots?new=1" className="text-sm font-medium text-blue-600 whitespace-nowrap hover:text-blue-700">数据不足，记录快照</Link>
+            )}
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            {refreshablePositions.length > 0 && (
+              <button
+                onClick={() => openRoute('/positions?new=1')}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-zinc-100 text-zinc-700 text-sm font-medium hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                刷新行情
+              </button>
+            )}
+            <button
+              onClick={() => openRoute('/trades?new=1')}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-zinc-100 text-zinc-700 text-sm font-medium hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              记录交易
+            </button>
+            <button
+              onClick={() => openRoute('/snapshots?new=1')}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              记录快照
+            </button>
           </div>
 
           {/* 周期盈亏 */}
           {positions.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-zinc-100 grid grid-cols-3 gap-4 text-sm">
+            <div className="mt-5 pt-5 border-t border-zinc-100 grid grid-cols-3 gap-4 text-sm">
               <div className="text-center">
-                <p className="text-zinc-400 text-xs mb-1">今日盈亏</p>
+                <p className="text-zinc-400 text-xs mb-1">今日变动</p>
                 <p className={`font-semibold ${pnlStats.daily.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
                   {formatCurrency(pnlStats.daily.change)}
                   <span className="text-xs font-normal ml-1">({formatPercent(pnlStats.daily.changePercent)})</span>
                 </p>
               </div>
               <div className="text-center border-x border-zinc-100">
-                <p className="text-zinc-400 text-xs mb-1">本月盈亏</p>
+                <p className="text-zinc-400 text-xs mb-1">本月变动</p>
                 <p className={`font-semibold ${pnlStats.monthly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
                   {formatCurrency(pnlStats.monthly.change)}
                   <span className="text-xs font-normal ml-1">({formatPercent(pnlStats.monthly.changePercent)})</span>
                 </p>
               </div>
               <div className="text-center">
-                <p className="text-zinc-400 text-xs mb-1">今年盈亏</p>
+                <p className="text-zinc-400 text-xs mb-1">今年变动</p>
                 <p className={`font-semibold ${pnlStats.yearly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
                   {formatCurrency(pnlStats.yearly.change)}
                   <span className="text-xs font-normal ml-1">({formatPercent(pnlStats.yearly.changePercent)})</span>
                 </p>
+              </div>
+            </div>
+          )}
+
+          {needAttention.length > 0 && (
+            <div className="mt-5 pt-5 border-t border-zinc-100">
+              <h2 className="text-sm font-medium text-zinc-900 mb-3">需要关注</h2>
+              <div className="space-y-2">
+                {needAttention.map((item) => (
+                  <div key={item} className="flex items-start gap-2 rounded-2xl bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                    <span className="mt-0.5 h-2 w-2 rounded-full bg-blue-500 shrink-0" />
+                    <span>{item}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -348,8 +404,9 @@ export default function HomePage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* 饼图 */}
           <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
-            <h2 className="text-base font-medium text-zinc-900 mb-4">资产配置</h2>
-            {hasData && pieData.length > 0 ? (
+            <h2 className="text-base font-medium text-zinc-900 mb-2">资产配置</h2>
+            <p className="text-xs text-zinc-500 mb-4">按总资产拆分持仓与现金</p>
+            {hasVisibleData && pieData.length > 0 ? (
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -405,7 +462,10 @@ export default function HomePage() {
           {/* 收益率曲线 */}
           <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-medium text-zinc-900">收益率曲线</h2>
+              <div>
+                <h2 className="text-base font-medium text-zinc-900">账户资产趋势</h2>
+                <p className="text-xs text-zinc-500 mt-1">充值、取现和转账都会影响曲线</p>
+              </div>
               <div className="flex items-center gap-2">
                 {/* 时间范围选择 */}
                 <div className="flex items-center bg-zinc-100 rounded-lg p-0.5">
@@ -426,41 +486,38 @@ export default function HomePage() {
               </div>
             </div>
 
-            {hasData && yieldCurveData.length > 0 ? (
+            {hasVisibleData && yieldCurveData.length > 0 ? (
               <>
+                <div className="flex items-center justify-between gap-3 mb-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {BENCHMARK_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        disabled={option.disabled}
+                        title={option.disabled ? option.reason : option.label}
+                        className={`px-2.5 py-1 rounded-full border text-xs transition-colors ${
+                          option.disabled
+                            ? 'border-zinc-200 text-zinc-400 bg-zinc-50 cursor-not-allowed'
+                            : 'border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100'
+                        }`}
+                      >
+                        {option.label}
+                        {!option.disabled && <span className="ml-1 text-[10px]">可用</span>}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-zinc-400">暂无可验证的基准历史数据</div>
+                </div>
                 {/* 当前收益率显示 */}
                 <div className="flex items-center gap-4 mb-4">
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-blue-500" />
-                    <span className="text-sm text-zinc-600">我的组合</span>
-                    <span className={`text-sm font-medium ${getPnLColor(currentYield.portfolio)}`}>
-                      {formatPercent(currentYield.portfolio)}
+                    <span className="text-sm text-zinc-600">组合收益</span>
+                    <span className={`text-sm font-medium ${getPnLColor(currentYield)}`}>
+                      {formatPercent(currentYield)}
                     </span>
                   </div>
-                  {benchmark !== 'none' && (
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-amber-500" />
-                      <span className="text-sm text-zinc-600">
-                        {BENCHMARK_OPTIONS.find(b => b.value === benchmark)?.label}
-                      </span>
-                      <span className={`text-sm font-medium ${getPnLColor(currentYield.benchmark)}`}>
-                        {formatPercent(currentYield.benchmark)}
-                      </span>
-                    </div>
-                  )}
-                  <div className="ml-auto">
-                    <select
-                      value={benchmark}
-                      onChange={(e) => setBenchmark(e.target.value as Benchmark)}
-                      className="bg-zinc-100 border border-zinc-300 rounded-lg px-2 py-1 text-xs text-zinc-700 focus:outline-none focus:border-blue-500"
-                    >
-                      {BENCHMARK_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          对比: {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <div className="ml-auto text-xs text-zinc-400">同一时间区间、同一基准日期、同币种口径</div>
                 </div>
 
                 {/* 收益率图表 */}
@@ -490,7 +547,7 @@ export default function HomePage() {
                         }}
                         formatter={(value, name) => [
                           `${Number(value).toFixed(2)}%`,
-                          name === 'portfolio' ? '我的组合' : BENCHMARK_OPTIONS.find(b => b.value === benchmark)?.label || '基准'
+                          name === 'portfolio' ? '我的组合' : '基准'
                         ]}
                         labelFormatter={(label) => `日期: ${label}`}
                       />
@@ -503,26 +560,20 @@ export default function HomePage() {
                         dot={false}
                         activeDot={{ r: 4, fill: '#3b82f6', stroke: '#fff', strokeWidth: 2 }}
                       />
-                      {benchmark !== 'none' && (
-                        <Line
-                          type="monotone"
-                          dataKey="benchmark"
-                          stroke="#f59e0b"
-                          strokeWidth={2}
-                          strokeDasharray="5 5"
-                          dot={false}
-                          activeDot={{ r: 4, fill: '#f59e0b', stroke: '#fff', strokeWidth: 2 }}
-                        />
-                      )}
+                    
                     </LineChart>
                   </ResponsiveContainer>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
+                  <span>数据来源：暂无可验证的基准历史数据</span>
+                  <span>最后更新时间：--</span>
                 </div>
               </>
             ) : (
               <div className="h-52 flex flex-col items-center justify-center text-center">
-                <p className="text-sm text-zinc-500 mb-2">暂无收益率数据</p>
+                <p className="text-sm text-zinc-500 mb-2">暂无可验证的基准历史数据</p>
                 <p className="text-xs text-zinc-400">
-                  请先在快照页面记录资产快照
+                  请先补充真实历史行情来源，当前不会回退到模拟数组
                 </p>
               </div>
             )}

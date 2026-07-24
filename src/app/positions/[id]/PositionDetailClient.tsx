@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useAppStore } from '@/lib/store';
 import { getPrice } from '@/lib/priceApi';
 import { ASSET_TYPE_CONFIG, type Account, type AssetType, type Lot } from '@/types';
+import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
   bank: '银行',
@@ -57,15 +58,6 @@ export default function PositionDetailClient() {
     });
   };
 
-  const formatCurrency = (value: number, currency = 'CNY') => {
-    return new Intl.NumberFormat('zh-CN', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
-  };
-
   // Format price for display - funds need 4 decimal places
   const formatPrice = (value: number, assetType: AssetType) => {
     const decimals = assetType === 'fund' ? 4 : 2;
@@ -80,11 +72,6 @@ export default function PositionDetailClient() {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
     });
-  };
-
-  const formatPercent = (value: number) => {
-    const sign = value >= 0 ? '+' : '';
-    return `${sign}${value.toFixed(2)}%`;
   };
 
   const isBankProduct = (type: AssetType) =>
@@ -226,7 +213,7 @@ export default function PositionDetailClient() {
               {isBank ? '收益金额' : '浮盈亏'}
             </span>
             <span className={`text-lg font-semibold ${pnlColor}`}>
-              {pnlAmount >= 0 ? '+' : '-'}{formatCurrency(pnlAmount, currency)}
+              {pnlAmount >= 0 ? '+' : '-'}{formatDualCurrency(Math.abs(pnlAmount), currency)}
             </span>
           </div>
           <div className="flex items-center justify-between">
@@ -276,7 +263,7 @@ export default function PositionDetailClient() {
                 </span>
                 <span className="text-lg font-medium text-zinc-900">
                   {isBank
-                    ? formatCurrency(position.quantity, currency)
+                    ? formatDualCurrency(position.quantity, currency)
                     : formatNumber(position.quantity, 4)}
                 </span>
               </div>
@@ -285,7 +272,7 @@ export default function PositionDetailClient() {
                   {isBank ? '购买净值' : '成本价'}
                 </span>
                 <span className="text-lg font-medium text-zinc-900">
-                  {position.assetType === 'fund' ? formatPrice(position.avgCost, position.assetType) : formatCurrency(position.avgCost, currency)}
+                  {position.assetType === 'fund' ? formatPrice(position.avgCost, position.assetType) : formatDualCurrency(position.avgCost, currency)}
                 </span>
               </div>
             </div>
@@ -295,7 +282,7 @@ export default function PositionDetailClient() {
                   {isBank ? '当前净值' : '现价'}
                 </span>
                 <span className="text-lg font-medium text-zinc-900">
-                  {position.assetType === 'fund' ? formatPrice(position.currentPrice, position.assetType) : formatCurrency(position.currentPrice, currency)}
+                  {position.assetType === 'fund' ? formatPrice(position.currentPrice, position.assetType) : formatDualCurrency(position.currentPrice, currency)}
                 </span>
               </div>
               <div className="py-2 border-b border-zinc-100">
@@ -303,7 +290,7 @@ export default function PositionDetailClient() {
                   {isBank ? '当前价值' : '市值'}
                 </span>
                 <span className="text-lg font-medium text-zinc-900">
-                  {formatCurrency(currentValue, currency)}
+                  {formatDualCurrency(currentValue, currency)}
                 </span>
               </div>
             </div>
@@ -314,7 +301,7 @@ export default function PositionDetailClient() {
               <span className="text-sm text-zinc-500">
                 {isBank ? '购买成本' : '成本合计'}
               </span>
-              <span className="text-sm text-zinc-700">{formatCurrency(costBasis, currency)}</span>
+              <span className="text-sm text-zinc-700">{formatDualCurrency(costBasis, currency)}</span>
             </div>
           </div>
         </div>
@@ -337,14 +324,14 @@ export default function PositionDetailClient() {
                         {isBuy ? '买入' : '卖出'}
                       </span>
                       <span className="text-sm text-zinc-600">
-                        {trade.quantity} @ {position.assetType === 'fund' ? formatPrice(trade.price, position.assetType) : formatCurrency(trade.price, currency)}
+                        {trade.quantity} @ {position.assetType === 'fund' ? formatPrice(trade.price, position.assetType) : formatDualCurrency(trade.price, currency)}
                       </span>
                     </div>
                     <div className="text-right">
                       <span className={`text-sm font-medium ${
                         isBuy ? 'text-green-600' : 'text-red-500'
                       }`}>
-                        {isBuy ? '-' : '+'}{formatCurrency(trade.total, currency)}
+                        {isBuy ? '-' : '+'}{formatDualCurrency(trade.total, currency)}
                       </span>
                       <p className="text-xs text-zinc-400">
                         {new Date(trade.executedAt).toLocaleDateString('zh-CN')}
@@ -395,17 +382,17 @@ export default function PositionDetailClient() {
                           <span className="text-xs text-zinc-500">
                             @ {position.assetType === 'fund'
                               ? formatPrice(lot.price, position.assetType)
-                              : formatCurrency(lot.price, currency)}
+                              : formatDualCurrency(lot.price, currency)}
                           </span>
                         </div>
                         <div className="flex items-center gap-3 text-xs text-zinc-400">
                           <span>买入 {new Date(lot.executedAt).toLocaleDateString('zh-CN')}</span>
-                          <span>成本 {formatCurrency(lotCost, currency)}</span>
+                          <span>成本 {formatDualCurrency(lotCost, currency)}</span>
                         </div>
                       </div>
                       <div className="text-right ml-4">
                         <div className={`text-sm font-medium ${lotPnlColor}`}>
-                          {lotPnl >= 0 ? '+' : ''}{formatCurrency(lotPnl, currency)}
+                          {lotPnl >= 0 ? '+' : ''}{formatDualCurrency(lotPnl, currency)}
                         </div>
                         <div className={`text-xs ${lotPnlColor}`}>
                           {lotPnlPercent >= 0 ? '+' : ''}{lotPnlPercent.toFixed(2)}%
@@ -419,7 +406,7 @@ export default function PositionDetailClient() {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-zinc-500">累计成本</span>
                   <span className="text-sm font-medium text-zinc-700">
-                    {formatCurrency(
+                    {formatDualCurrency(
                       activeLots.reduce((sum, l) => sum + l.remainingQuantity * l.price, 0),
                       currency
                     )}

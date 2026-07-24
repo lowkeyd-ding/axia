@@ -59,25 +59,26 @@ export default function NavBar() {
   ];
 
   return (
-    <nav className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-zinc-200 shadow-sm">
-      <div className="max-w-5xl mx-auto px-4">
-        <div className="flex items-center justify-between h-14">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center font-bold text-white shadow-lg shadow-blue-500/25">
-              <span className="text-sm">AX</span>
-            </div>
-            <span className="text-lg font-semibold text-zinc-900">AXIA</span>
-          </Link>
+    <>
+      <nav className="sticky top-0 z-40 border-b border-white/60 bg-white/75 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.6),0_8px_30px_rgba(24,24,27,0.04)]">
+        <div className="max-w-5xl mx-auto px-4">
+          <div className="flex items-center justify-between h-16">
+            <Link href="/" className="flex items-center gap-3 group">
+              <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-blue-500 via-blue-600 to-cyan-500 flex items-center justify-center font-bold text-white shadow-lg shadow-blue-500/25 group-hover:scale-105 transition-transform">
+                <span className="text-sm tracking-wide">AX</span>
+              </div>
+              <span className="text-lg font-semibold text-zinc-900 tracking-tight">AXIA</span>
+            </Link>
 
-          <div className="flex items-center gap-1">
+            <div className="hidden md:flex items-center gap-1 bg-zinc-100/70 rounded-2xl p-1">
             {NAV_ITEMS.map((item) => {
               const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive ? 'bg-blue-50 text-blue-600' : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+                    isActive ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100' : 'text-zinc-600 hover:text-zinc-900 hover:bg-white/70'
                   }`}
                 >
                   {item.icon}
@@ -87,14 +88,14 @@ export default function NavBar() {
             })}
 
             {/* Auth Section */}
-            <div className="ml-2 pl-2 border-l border-zinc-200" ref={dropdownRef}>
+            <div className="ml-2 pl-3 border-l border-zinc-200/70" ref={dropdownRef}>
               {isLoading ? (
                 <div className="w-8 h-8 rounded-full bg-zinc-200 animate-pulse" />
               ) : user ? (
                 <div className="relative">
                   <button
                     onClick={() => setDropdownOpen(!dropdownOpen)}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-zinc-100 transition-colors"
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-2xl hover:bg-zinc-100 transition-colors"
                   >
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-sm font-medium">
                       {user.email?.charAt(0).toUpperCase() ?? 'U'}
@@ -131,5 +132,24 @@ export default function NavBar() {
         </div>
       </div>
     </nav>
+    <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-zinc-200 bg-white/90 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
+      <div className="grid grid-cols-4 max-w-5xl mx-auto px-2 py-1">
+        {[
+          { href: '/', label: '首页', icon: '⌂' },
+          { href: '/positions', label: '持仓', icon: '▣' },
+          { href: '/trades', label: '交易', icon: '↔' },
+          { href: '/accounts', label: '账户', icon: '◫' },
+        ].map((item) => {
+          const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
+          return (
+            <Link key={item.href} href={item.href} className={`flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-xs ${active ? 'text-blue-600' : 'text-zinc-500'}`}>
+              <span aria-hidden="true" className="text-base leading-none">{item.icon}</span>
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
+    </>
   );
 }

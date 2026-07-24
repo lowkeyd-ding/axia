@@ -1,36 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AXIA
 
-## Getting Started
+AXIA 是一个面向个人投资记录的资产管理应用，用来整理账户、持仓、交易、转账和资产快照。
 
-First, run the development server:
+## 数据与同步
+
+- 主要数据保存在浏览器本地存储中，便于离线使用。
+- 登录后可与 Supabase 云端同步，作为跨设备备份与恢复手段。
+- 本地和云端都发生更新时，应用不会静默覆盖，而会提示选择“使用云端数据”或“保留本地并上传”。决定前可先导出本地 JSON 备份。
+- 同步失败不会清除本地数据；状态区会提示失败并允许立即重试。未登录时数据仅保存在当前设备。
+
+## 数据说明
+
+- “资产变化”是两次快照总资产的变化，其中包含外部入金和取现，不等同于投资收益。
+- “现金流调整后表现”以首尾快照为基础，扣除期间已记录的外部转入并加回外部转出；内部转账和买卖交易不作为组合外部现金流。由于缺少日内估值，它是保守的累计变化估算，不是完整 TWR 或年化收益率。快照不足时显示“数据不足”。
+- 行情和汇率仅供个人记录参考，不构成投资建议。行情可能延迟或暂时不可用；页面使用“最近更新/最近成功获取”，旧价格会在刷新失败时保留。
+- 当前暂不提供真实历史基准数据，基准对比仅保留占位说明。
+
+## 本地开发
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 测试
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run test:run
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 构建
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run build
+```

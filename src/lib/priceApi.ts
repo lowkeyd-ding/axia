@@ -61,11 +61,14 @@ export function isFundSymbol(symbol: string): boolean {
 /**
  * Get price for a single symbol
  */
-export async function getPrice(symbol: string): Promise<PriceData | null> {
+export async function getPrice(
+  symbol: string,
+  assetType?: 'stock' | 'fund'
+): Promise<PriceData | null> {
   const upper = symbol.toUpperCase();
 
   try {
-    const prices = await refreshPrices([upper]);
+    const prices = await refreshPricesByType([upper], [assetType ?? 'stock']);
     if (prices.prices && prices.prices.length > 0) {
       return prices.prices[0];
     }
@@ -95,14 +98,24 @@ export async function getPrice(symbol: string): Promise<PriceData | null> {
  * Batch refresh prices for multiple symbols
  */
 export async function refreshPrices(symbols: string[]): Promise<RefreshPricesResult> {
+  return refreshPricesByType(symbols, symbols.map(() => 'stock'));
+}
+
+/**
+ * Batch refresh prices by asset type
+ */
+export async function refreshPricesByType(
+  symbols: string[],
+  assetTypes: ('stock' | 'fund')[]
+): Promise<RefreshPricesResult> {
   if (symbols.length === 0) {
     return { success: true, prices: [] };
   }
 
   try {
     const prices = await Promise.all(
-      symbols.map(async (symbol) => {
-        const result = await fetchSymbol(symbol);
+      symbols.map(async (symbol, index) => {
+        const result = await fetchSymbol(symbol, assetTypes[index]);
         return { symbol, result };
       })
     );
@@ -147,31 +160,46 @@ export async function refreshPrices(symbols: string[]): Promise<RefreshPricesRes
   }
 }
 
-/**
- * Batch refresh prices by asset type
- */
-export async function refreshPricesByType(
-  symbols: string[],
-  _assetTypes: ('stock' | 'fund')[]
-): Promise<RefreshPricesResult> {
-  void _assetTypes;
-  return refreshPrices(symbols);
-}
+async function fetchSymbol(
+  symbol: string,
+  assetType?: 'stock' | 'fund'
+): Promise<PriceData | null> {
+  const upper = symbol.toUpperCase().replace(/\.OF$/, '');
 
-async function fetchSymbol(symbol: string): Promise<PriceData | null> {
+  if (assetType === 'fund') {
+    try {
+      const response = await fetch(`/api/fund-price?symbols=${encodeURIComponent(upper)}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.prices && data.prices.length > 0) {
+          return { ...data.prices[0], symbol: upper };
+        }
+      }
+    } catch {
+      // Fall through to null
+    }
+
+    return null;
+  }
+
   try {
-    const response = await fetch(`/api/price?symbols=${encodeURIComponent(symbol)}`);
+    const response = await fetch(`/api/price?symbols=${encodeURIComponent(upper)}`);
     if (response.ok) {
       const data = await response.json();
       if (data.prices && data.prices.length > 0) {
-        return data.prices[0];
+        return { ...data.prices[0], symbol: upper };
       }
     }
   } catch {
     // Fall through to fallback
   }
 
-  // Fallback to external API
   const { fetchSymbol: externalFetch } = await import('@/lib/externalPriceApi');
-  return externalFetch(symbol);
+  const result = await externalFetch(upper);
+  return result ? { ...result, symbol: upper } : null;
+}
+
+async function fetchFundDirectly(symbol: string): Promise<PriceData | null> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return null;
+  return null;
 }

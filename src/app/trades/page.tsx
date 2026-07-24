@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
 import type { Account, AssetType } from '@/types';
@@ -41,6 +42,8 @@ const initialFormData: FormData = {
 };
 
 export default function TradesPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { trades, accounts, positions, executeTrade } = useAppStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState<FormData>(initialFormData);
@@ -202,6 +205,7 @@ export default function TradesPage() {
     setSymbolSuggestions([]);
     setShowSuggestions(false);
     setIsModalOpen(false);
+    if (searchParams.get('new') === '1') router.replace('/trades');
   };
 
   const openAddModal = (type: 'buy' | 'sell' = 'buy') => {
@@ -212,6 +216,12 @@ export default function TradesPage() {
     setFormData({ ...initialFormData, accountId: accounts[0].id, type });
     setIsModalOpen(true);
   };
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      openAddModal('buy');
+    }
+  }, [searchParams]);
 
   const isBankProduct = (type: AssetType) =>
     type === 'bank_wealth_management' || type === 'bank_cash';

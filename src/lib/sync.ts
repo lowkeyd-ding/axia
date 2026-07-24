@@ -11,6 +11,11 @@ export interface CloudSyncData {
   lots: Lot[];
 }
 
+export interface CloudSyncRecord {
+  data: CloudSyncData;
+  updatedAt: string | null;
+}
+
 function getSupabaseConfig(): { url: string; anonKey: string } | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -64,30 +69,22 @@ export async function syncToCloudForUser(data: CloudSyncData, userId: string): P
   }
 }
 
-export async function loadFromCloud(): Promise<CloudSyncData | null> {
+export async function loadFromCloud(): Promise<CloudSyncRecord | null> {
   try {
     const authed = await getAuthedClient();
-    if (!authed) {
-      console.log('[CloudSync] No active session, skipping load');
-      return null;
-    }
+    if (!authed) return null;
 
     const { data, error } = await authed.client
       .from('axia_data')
-      .select('data')
+      .select('data, updated_at')
       .eq('user_id', authed.userId)
       .maybeSingle();
 
-    if (error) {
-      console.log('[CloudSync] Load error:', error);
-      return null;
-    }
-    if (!data) {
-      console.log('[CloudSync] No cloud data for this user');
-      return null;
-    }
-    console.log('[CloudSync] Data loaded from cloud');
-    return data.data as CloudSyncData;
+    if (error || !data) return null;
+    return {
+      data: data.data as CloudSyncData,
+      updatedAt: typeof data.updated_at === 'string' ? data.updated_at : null,
+    };
   } catch (error) {
     console.error('[CloudSync] Failed to load from cloud:', error);
     return null;

@@ -1,14 +1,15 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef, useMemo, Suspense } from 'react';
+import { formatBusinessDateTime } from '@/lib/businessDate';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
-import { refreshPrices, getPrice } from '@/lib/priceApi';
+import { refreshPricesByType, getPrice } from '@/lib/priceApi';
 import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
 import type { Position, Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
-import { formatCurrency, formatPercent } from '@/utils/format';
+import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
 import { usePnLStats, computePositionPnLRaw } from '@/lib/hooks/usePnLStats';
 import { useFxRates } from '@/lib/hooks/useFxRates';
@@ -49,6 +50,7 @@ const initialFormData: FormData = {
 };
 
 function PositionsPageContent() {
+  const router = useRouter();
   const { positions, accounts, addPosition, updatePosition } = useAppStore();
   const pnlStats = usePnLStats();
   const searchParams = useSearchParams();
@@ -71,6 +73,7 @@ function PositionsPageContent() {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [refreshStatus, setRefreshStatus] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPosition, setEditingPosition] = useState<Position | null>(null);
   const [formData, setFormData] = useState<FormData>(initialFormData);
@@ -155,29 +158,47 @@ function PositionsPageContent() {
       const tradeablePositions = positions.filter(
         (p) => p.assetType !== 'bank_wealth_management' && p.assetType !== 'bank_cash' && p.symbol
       );
-      const symbols = [...new Set(tradeablePositions.map((p) => p.symbol))];
-      const result = await refreshPrices(symbols);
+      const uniquePositions = [...new Map(
+        tradeablePositions.map((position) => [position.symbol.toUpperCase(), position])
+      ).values()];
+      const symbols = uniquePositions.map((position) => position.symbol.toUpperCase());
+      const assetTypes = uniquePositions.map((position) => position.assetType as 'stock' | 'fund');
+      const result = await refreshPricesByType(symbols, assetTypes);
 
       // Update prices for any successfully fetched symbols
       // Even if some symbols failed, update the ones that succeeded
       if (result.prices && result.prices.length > 0) {
         result.prices.forEach((priceData) => {
-          const position = positions.find((p) => p.symbol === priceData.symbol);
-          if (position) {
+          const matchingPositions = positions.filter(
+            (position) => position.symbol.toUpperCase() === priceData.symbol.toUpperCase()
+          );
+          matchingPositions.forEach((position) => {
             updatePosition(position.id, { currentPrice: priceData.price });
             successCount++;
-          }
+          });
         });
         setLastRefresh(new Date());
       }
 
-      // Count failed symbols (those in the request but not in results)
-      const successfulSymbols = new Set(result.prices?.map(p => p.symbol) || []);
-      failedCount = symbols.filter(s => !successfulSymbols.has(s)).length;
+      const successfulSymbols = new Set(result.prices?.map((p) => p.symbol) || []);
+      failedCount = symbols.filter((s) => !successfulSymbols.has(s)).length;
+      const errorDetail = result.errors?.length ? `；原因：${result.errors.join('，')}` : '';
+      if (successCount > 0) {
+        setRefreshStatus(
+          failedCount > 0
+            ? `部分行情更新失败（成功 ${successCount}，失败 ${failedCount}）${errorDetail}`
+            : `已于 ${formatBusinessDateTime(new Date())} 刷新`
+        );
+      } else if (failedCount > 0) {
+        setRefreshStatus(`行情更新失败（失败 ${failedCount}）${errorDetail || '；请稍后重试'}`);
+      } else if (symbols.length === 0) {
+        setRefreshStatus('暂无可更新的行情标的');
+      }
     } catch {
       failedCount = positions.filter(
         (p) => p.assetType !== 'bank_wealth_management' && p.assetType !== 'bank_cash'
       ).length;
+      setRefreshStatus(failedCount > 0 ? `行情更新失败（失败 ${failedCount}）；请检查网络或上游接口` : '暂无可更新的行情标的');
     } finally {
       setIsRefreshing(false);
       if (successCount > 0 || failedCount > 0) {
@@ -193,15 +214,18 @@ function PositionsPageContent() {
     setRefreshingSymbols((prev) => new Set(prev).add(position.symbol));
 
     try {
-      const result = await getPrice(position.symbol);
+      const result = await getPrice(position.symbol, position.assetType as 'stock' | 'fund');
 
       if (result) {
         updatePosition(position.id, { currentPrice: result.price });
+        setRefreshStatus(`已于 ${formatBusinessDateTime(new Date())} 刷新`);
         setPriceUpdateToast({ success: 1, failed: 0 });
       } else {
+        setRefreshStatus('行情更新失败（成功 0，失败 1）；请检查该基金是否能访问上游净值接口');
         setPriceUpdateToast({ success: 0, failed: 1 });
       }
     } catch {
+      setRefreshStatus('行情更新失败（成功 0，失败 1）；请检查网络或上游接口');
       setPriceUpdateToast({ success: 0, failed: 1 });
     } finally {
       setRefreshingSymbols((prev) => {
@@ -240,7 +264,7 @@ function PositionsPageContent() {
     const costBasis = position.avgCost * position.quantity;
     const pnlAmount = currentValue - costBasis;
     const pnlPercent = costBasis > 0 ? ((currentValue - costBasis) / costBasis) * 100 : 0;
-    return { pnlAmount, pnlPercent };
+    return { pnlAmount, pnlPercent, currentValue, costBasis };
   };
 
   const validateForm = (): boolean => {
@@ -260,7 +284,7 @@ function PositionsPageContent() {
 
   const openAddModal = () => {
     if (accounts.length === 0) {
-      alert('请先添加账户');
+      setPriceUpdateToast({ success: 0, failed: 1 });
       return;
     }
     setEditingPosition(null);
@@ -339,6 +363,9 @@ function PositionsPageContent() {
     setShowSuggestions(false);
     setEditingPosition(null);
     setIsModalOpen(false);
+    if (searchParams.get('new') === '1') {
+      router.replace('/positions');
+    }
   };
 
   const isBankProduct = (type: AssetType) =>
@@ -351,7 +378,7 @@ function PositionsPageContent() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-zinc-50 text-zinc-900">
+    <div className="flex flex-col min-h-screen bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.06),transparent_24%),linear-gradient(to_bottom,#fafafa,#f8fafc)] text-zinc-900">
       {/* Price Update Toast */}
       {priceUpdateToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-lg shadow-xl bg-white/95 backdrop-blur border border-zinc-200">
@@ -374,28 +401,30 @@ function PositionsPageContent() {
         </div>
       )}
 
-      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-zinc-200 shadow-sm">
+      <header className="border-b border-white/60 bg-white/75 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.6),0_8px_30px_rgba(24,24,27,0.04)]">
         <div className="max-w-4xl mx-auto px-4 py-5">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">持仓明细</h1>
-              {lastRefresh && (
+              <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">持仓总览</h1>
+              {refreshStatus ? (
+                <p className="mt-1 text-xs text-zinc-500">{refreshStatus}</p>
+              ) : lastRefresh ? (
                 <p className="mt-1 text-xs text-zinc-500">
-                  上次刷新: {lastRefresh.toLocaleTimeString('zh-CN')}
+                  上次更新: {formatBusinessDateTime(lastRefresh)}
                 </p>
-              )}
+              ) : null}
               {positions.length > 0 && (
                 <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
                   <span className="text-zinc-500">
-                    今日 <span className={`font-medium ${pnlStats.daily.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>{formatCurrency(pnlStats.daily.change)} ({formatPercent(pnlStats.daily.changePercent)})</span>
+                    今日 <span className={`font-medium ${pnlStats.daily.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>{formatDualCurrency(Math.abs(pnlStats.daily.change), 'CNY')} ({formatPercent(pnlStats.daily.changePercent)})</span>
                   </span>
                   <span className="text-zinc-400">|</span>
                   <span className="text-zinc-500">
-                    本月 <span className={`font-medium ${pnlStats.monthly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>{formatCurrency(pnlStats.monthly.change)} ({formatPercent(pnlStats.monthly.changePercent)})</span>
+                    本月 <span className={`font-medium ${pnlStats.monthly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>{formatDualCurrency(Math.abs(pnlStats.monthly.change), 'CNY')} ({formatPercent(pnlStats.monthly.changePercent)})</span>
                   </span>
                   <span className="text-zinc-400">|</span>
                   <span className="text-zinc-500">
-                    今年 <span className={`font-medium ${pnlStats.yearly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>{formatCurrency(pnlStats.yearly.change)} ({formatPercent(pnlStats.yearly.changePercent)})</span>
+                    今年 <span className={`font-medium ${pnlStats.yearly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>{formatDualCurrency(Math.abs(pnlStats.yearly.change), 'CNY')} ({formatPercent(pnlStats.yearly.changePercent)})</span>
                   </span>
                 </div>
               )}
@@ -481,7 +510,7 @@ function PositionsPageContent() {
         ) : (
           <div className="space-y-2">
             {filteredPositions.map((position) => {
-              const { pnlAmount, pnlPercent } = calculatePnL(position);
+              const { pnlAmount, pnlPercent, currentValue, costBasis } = calculatePnL(position);
               const currency = getAccountCurrency(position.accountId);
               const assetConfig = ASSET_TYPE_CONFIG[position.assetType];
               const pnlColor = getPnLColor(pnlAmount);
@@ -491,7 +520,7 @@ function PositionsPageContent() {
               return (
                 <div
                   key={position.id}
-                  className="bg-white border border-zinc-200 rounded-xl p-4 hover:border-zinc-300 hover:shadow-sm transition-colors"
+                  className="bg-white/85 backdrop-blur border border-white/60 rounded-2xl p-4 shadow-[0_10px_30px_rgba(24,24,27,0.05)] hover:shadow-[0_16px_40px_rgba(24,24,27,0.08)] transition-all"
                 >
                   <div className="flex items-center justify-between">
                     <Link
@@ -519,10 +548,12 @@ function PositionsPageContent() {
                         <p className="text-base font-medium text-zinc-900">
                           {position.assetType === 'fund' 
                             ? formatPrice(position.currentPrice, position.assetType)
-                            : formatCurrency(position.currentPrice, currency)}
+                            : formatDualCurrency(position.currentPrice, currency)}
                         </p>
-                        <div className={`flex items-center justify-end gap-1.5 text-sm ${pnlColor}`}>
-                          <span>{formatCurrency(pnlAmount, currency)}</span>
+                        <div className={`flex flex-col items-end gap-0.5 text-sm ${pnlColor}`}>
+                          <span>
+                            {pnlAmount >= 0 ? '+' : '-'}{formatDualCurrency(Math.abs(pnlAmount), currency)}
+                          </span>
                           <span className="text-xs">({formatPercent(pnlPercent)})</span>
                         </div>
                       </div>
@@ -594,19 +625,19 @@ function PositionsPageContent() {
                       <div>
                         <span className="text-zinc-400">今日 </span>
                         <span className={`font-medium ${periodPnL.daily >= 0 ? 'text-red-500' : 'text-green-500'}`}>
-                          {formatCurrency(periodPnL.daily, 'CNY')}
+                          {formatDualCurrency(Math.abs(periodPnL.daily), 'CNY')}
                         </span>
                       </div>
                       <div>
                         <span className="text-zinc-400">本月 </span>
                         <span className={`font-medium ${periodPnL.monthly >= 0 ? 'text-red-500' : 'text-green-500'}`}>
-                          {formatCurrency(periodPnL.monthly, 'CNY')}
+                          {formatDualCurrency(Math.abs(periodPnL.monthly), 'CNY')}
                         </span>
                       </div>
                       <div>
                         <span className="text-zinc-400">今年 </span>
                         <span className={`font-medium ${periodPnL.yearly >= 0 ? 'text-red-500' : 'text-green-500'}`}>
-                          {formatCurrency(periodPnL.yearly, 'CNY')}
+                          {formatDualCurrency(Math.abs(periodPnL.yearly), 'CNY')}
                         </span>
                       </div>
                     </div>
@@ -923,13 +954,7 @@ function PositionsPageContent() {
 
 export default function PositionsPage() {
   return (
-    <Suspense fallback={
-      <div className="flex flex-col min-h-screen bg-zinc-50">
-        <div className="flex items-center justify-center py-20">
-          <div className="text-zinc-500">加载中...</div>
-        </div>
-      </div>
-    }>
+    <Suspense fallback={null}>
       <PositionsPageContent />
     </Suspense>
   );
