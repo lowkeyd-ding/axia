@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
@@ -52,6 +52,11 @@ export default function TradesPage() {
   const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolInfo[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [tradeResult, setTradeResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [historyQuery, setHistoryQuery] = useState('');
+  const [historyType, setHistoryType] = useState<'all' | 'buy' | 'sell'>('all');
+  const [historyAccountId, setHistoryAccountId] = useState('all');
+  const [historyPeriod, setHistoryPeriod] = useState<'all' | '30d' | '90d' | 'year'>('all');
+  const [historySort, setHistorySort] = useState<'newest' | 'oldest'>('newest');
   const suggestionRef = useRef<HTMLDivElement>(null);
 
   // Close suggestions when clicking outside
@@ -235,6 +240,43 @@ export default function TradesPage() {
   const calculatedTotal = (parseFloat(formData.quantity) || 0) * (parseFloat(formData.price) || 0);
   const calculatedFees = parseFloat(formData.fees) || 0;
 
+  const filteredTrades = useMemo(() => {
+    const now = new Date();
+    const periodStart = new Date(now);
+    if (historyPeriod === '30d') periodStart.setDate(now.getDate() - 30);
+    if (historyPeriod === '90d') periodStart.setDate(now.getDate() - 90);
+    if (historyPeriod === 'year') {
+      periodStart.setMonth(0, 1);
+      periodStart.setHours(0, 0, 0, 0);
+    }
+    const query = historyQuery.trim().toLowerCase();
+    return trades
+      .filter((trade) => historyType === 'all' || trade.type === historyType)
+      .filter((trade) => historyAccountId === 'all' || trade.accountId === historyAccountId)
+      .filter((trade) => historyPeriod === 'all' || new Date(trade.executedAt) >= periodStart)
+      .filter((trade) => !query || trade.name.toLowerCase().includes(query) || trade.symbol.toLowerCase().includes(query))
+      .sort((a, b) => {
+        const diff = new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime();
+        return historySort === 'newest' ? diff : -diff;
+      });
+  }, [trades, historyType, historyAccountId, historyPeriod, historyQuery, historySort]);
+
+  const historySummary = useMemo(() => filteredTrades.reduce((summary, trade) => {
+    summary.notional += trade.total;
+    summary.fees += Number.isFinite(trade.fees) ? trade.fees : 0;
+    if (trade.type === 'buy') summary.buyCount += 1;
+    else summary.sellCount += 1;
+    return summary;
+  }, { notional: 0, fees: 0, buyCount: 0, sellCount: 0 }), [filteredTrades]);
+
+  const hasHistoryFilters = historyQuery || historyType !== 'all' || historyAccountId !== 'all' || historyPeriod !== 'all';
+  const clearHistoryFilters = () => {
+    setHistoryQuery('');
+    setHistoryType('all');
+    setHistoryAccountId('all');
+    setHistoryPeriod('all');
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-zinc-50 text-zinc-900">
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-zinc-200 shadow-sm">
@@ -292,7 +334,40 @@ export default function TradesPage() {
         </div>
       )}
 
-      <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-6">
+      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 space-y-5">
+        {trades.length > 0 && (
+          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-blue-600">历史交易</p>
+                <h2 className="mt-1 text-lg font-semibold text-zinc-900">查询与筛选</h2>
+                <p className="mt-1 text-xs text-zinc-500">按时间、方向、账户或产品代码查看已有交易记录。</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="rounded-xl bg-zinc-50 px-3 py-2"><p className="text-xs text-zinc-400">结果</p><p className="mt-1 text-sm font-semibold text-zinc-800">{filteredTrades.length} 笔</p></div>
+                <div className="rounded-xl bg-blue-50 px-3 py-2"><p className="text-xs text-blue-500">买入</p><p className="mt-1 text-sm font-semibold text-blue-700">{historySummary.buyCount} 笔</p></div>
+                <div className="rounded-xl bg-red-50 px-3 py-2"><p className="text-xs text-red-400">卖出</p><p className="mt-1 text-sm font-semibold text-red-600">{historySummary.sellCount} 笔</p></div>
+                <div className="rounded-xl bg-amber-50 px-3 py-2"><p className="text-xs text-amber-500">已记录费用</p><p className="mt-1 text-sm font-semibold text-amber-700">{formatCurrency(historySummary.fees)}</p></div>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-6">
+              <input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="搜索名称或代码" className="rounded-xl border border-zinc-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 lg:col-span-2" />
+              <select value={historyType} onChange={(event) => setHistoryType(event.target.value as typeof historyType)} className="rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500">
+                <option value="all">全部方向</option><option value="buy">买入</option><option value="sell">卖出</option>
+              </select>
+              <select value={historyAccountId} onChange={(event) => setHistoryAccountId(event.target.value)} className="rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500">
+                <option value="all">全部账户</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+              </select>
+              <select value={historyPeriod} onChange={(event) => setHistoryPeriod(event.target.value as typeof historyPeriod)} className="rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500">
+                <option value="all">全部时间</option><option value="30d">近 30 天</option><option value="90d">近 90 天</option><option value="year">今年</option>
+              </select>
+              <select value={historySort} onChange={(event) => setHistorySort(event.target.value as typeof historySort)} className="rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500">
+                <option value="newest">最新优先</option><option value="oldest">最早优先</option>
+              </select>
+            </div>
+          </section>
+        )}
+
         {trades.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-16 h-16 mb-4 rounded-full bg-zinc-100 flex items-center justify-center">
@@ -313,9 +388,19 @@ export default function TradesPage() {
             <h2 className="text-lg font-medium text-zinc-700 mb-1">暂无交易记录</h2>
             <p className="text-sm text-zinc-500">点击上方按钮记录您的第一笔交易</p>
           </div>
+        ) : filteredTrades.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-zinc-300 bg-white py-16 text-center">
+            <h2 className="text-base font-medium text-zinc-700">没有符合条件的交易</h2>
+            <p className="mt-1 text-sm text-zinc-500">可以调整搜索关键词或筛选条件。</p>
+            {hasHistoryFilters && <button onClick={clearHistoryFilters} className="mt-4 rounded-xl bg-blue-50 px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-100">清除筛选</button>}
+          </div>
         ) : (
           <div className="space-y-2">
-            {trades.map((trade) => {
+            <div className="flex items-center justify-between px-1 pb-1">
+              <p className="text-sm font-medium text-zinc-700">交易明细</p>
+              <p className="text-xs text-zinc-500">筛选成交金额 {formatCurrency(historySummary.notional)}</p>
+            </div>
+            {filteredTrades.map((trade) => {
               const assetConfig = ASSET_TYPE_CONFIG[trade.assetType];
               const isBuy = trade.type === 'buy';
               const currency = getAccountCurrency(trade.accountId);
