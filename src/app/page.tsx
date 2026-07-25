@@ -387,7 +387,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3 flex items-center justify-between gap-4">
+          <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-sm font-medium text-zinc-800">现金流调整后表现</p>
               <p className="mt-1 text-xs text-zinc-500">尽可能剔除外部入金和取现；至少需要两次不同日期的快照。</p>
@@ -400,6 +400,7 @@ export default function HomePage() {
               <Link href="/snapshots?new=1" className="text-sm font-medium text-blue-600 whitespace-nowrap hover:text-blue-700">数据不足，记录快照</Link>
             )}
           </div>
+          <p className="mt-2 text-[11px] text-zinc-500">汇率口径：港币账户按前一交易日中国银行港币现汇卖出价近似估值；港股通按港股通结算汇率。</p>
 
           <div className="mt-5 flex flex-wrap gap-2">
             {refreshablePositions.length > 0 && (

@@ -15,6 +15,7 @@
 import { DEFAULT_EXCHANGE_RATES, type ExchangeRates } from '@/config/exchangeRates';
 import { fetchSinaForexRates } from '@/lib/forexApi';
 import { getHkexSettlementRate } from '@/lib/hkexRateClient';
+import { fetchBocHkdSellRate } from '@/lib/bocRateClient';
 
 // 港股通结算汇率结构
 export interface HkexSettlementRates {
@@ -33,6 +34,14 @@ export interface FxRates {
   EUR: number;
   JPY: number;
   GBP: number;
+
+  // 港币账户口径说明：前一交易日中国银行港币现汇卖出价（近似）
+  bocHkd?: {
+    date: string;
+    rate: number;
+    source: string;
+    note: string;
+  };
 
   // 港股通结算汇率（CNY 账户持港股时使用）
   hkex?: HkexSettlementRates;
@@ -63,9 +72,10 @@ export async function getFxRates(): Promise<FxRates> {
   }
 
   try {
-    const [forexResults, hkexRate] = await Promise.allSettled([
+    const [forexResults, hkexRate, bocHkdRate] = await Promise.allSettled([
       fetchSinaForexRates(),
       getHkexSettlementRate(),
+      fetchBocHkdSellRate(),
     ]);
 
     const result: FxRates = {
@@ -86,6 +96,14 @@ export async function getFxRates(): Promise<FxRates> {
 
     if (hkexRate.status === 'fulfilled' && hkexRate.value) {
       result.hkex = hkexRate.value.rate;
+    }
+
+    if (bocHkdRate.status === 'fulfilled' && bocHkdRate.value) {
+      result.bocHkd = {
+        ...bocHkdRate.value,
+        note: '前一交易日中国银行港币现汇卖出价（近似口径）',
+      };
+      result.HKD = bocHkdRate.value.rate;
     }
 
     cachedRates = result;
@@ -162,7 +180,12 @@ export function convertToAccountCNY(
     return positionValue * rates.HKD;
   }
 
-  // 3. 其他跨币种 → 现汇卖出价（1 外币 = X CNY）
+  // 3. 港币账户（HKD → CNY）使用前一交易日中国银行港币现汇卖出价近似值
+  if (posCurrency === 'HKD' && acctCurrency === 'CNY') {
+    return positionValue * (rates.bocHkd?.rate || rates.HKD);
+  }
+
+  // 4. 其他跨币种 → 现汇卖出价（1 外币 = X CNY）
   const fxRate = (rates as unknown as Record<string, number | HkexSettlementRates>)[posCurrency];
   if (typeof fxRate === 'number' && fxRate > 0) {
     return positionValue * fxRate;
