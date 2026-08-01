@@ -342,7 +342,7 @@ export async function fetchSymbol(symbol: string): Promise<PriceData | null> {
 
 async function fetchOFFundNAV(symbol: string): Promise<PriceData | null> {
   try {
-    const response = await fetch(`/api/price?symbols=${encodeURIComponent(symbol)}`, {
+    const response = await fetch(`/api/fund-price?symbols=${encodeURIComponent(symbol)}`, {
       signal: AbortSignal.timeout(10000),
     });
 
@@ -361,7 +361,7 @@ async function fetchOFFundNAV(symbol: string): Promise<PriceData | null> {
 
 async function fetchFundNAV(symbol: string): Promise<PriceData | null> {
   try {
-    const response = await fetch(`/api/price?symbols=${encodeURIComponent(symbol)}`, {
+    const response = await fetch(`/api/fund-price?symbols=${encodeURIComponent(symbol)}`, {
       signal: AbortSignal.timeout(10000),
     });
 

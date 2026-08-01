@@ -112,47 +112,7 @@ async function fetchConfirmedNav(symbol: string) {
   };
 }
 
-async function fetchFundPageNav(symbol: string) {
-  const response = await fetchWithTimeout(`https://fund.eastmoney.com/pingzhongdata/${symbol}.js?v=${Date.now()}`, {
-    headers: { Referer: `https://fund.eastmoney.com/${symbol}.html`, 'User-Agent': 'Mozilla/5.0' },
-  });
-  if (!response.ok) return null;
 
-  const text = await response.text();
-  const name = text.match(/var\s+fS_name\s*=\s*"([^"]+)"/)?.[1] || symbol;
-  const trendRaw = text.match(/var\s+Data_netWorthTrend\s*=\s*(\[[\s\S]*?\]);/)?.[1];
-  if (!trendRaw) return null;
-
-  const trend = JSON.parse(trendRaw) as NetWorthTrendItem[];
-  const latest = trend.at(-1);
-  const previous = trend.at(-2);
-  const price = Number(latest?.y);
-  const previousPrice = Number(previous?.y);
-  if (!latest || !Number.isFinite(price) || price <= 0) return null;
-
-  const reportedPercent = Number(latest.equityReturn);
-  const prevClose = Number.isFinite(previousPrice) && previousPrice > 0
-    ? previousPrice
-    : Number.isFinite(reportedPercent) && reportedPercent !== -100
-      ? price / (1 + reportedPercent / 100)
-      : price;
-  const change = price - prevClose;
-
-  return {
-    symbol,
-    name,
-    price,
-    change,
-    changePercent: prevClose > 0 ? (change / prevClose) * 100 : 0,
-    prevClose,
-    open: price,
-    high: price,
-    low: price,
-    volume: 0,
-    timestamp: new Date(latest.x).toISOString(),
-    source: 'fund' as const,
-  };
-}
 
 async function fetchOtcFund(symbol: string) {
   try {
@@ -195,11 +155,7 @@ async function fetchOtcFund(symbol: string) {
     // Continue with the public fund page data source.
   }
 
-  try {
-    return await fetchFundPageNav(symbol);
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 export async function GET(request: NextRequest) {
@@ -232,7 +188,7 @@ export async function GET(request: NextRequest) {
   const prices = settled.flatMap((item) => item.price ? [item.price] : []);
   const errors = settled.flatMap((item) => item.error ? [item.error] : []);
   return NextResponse.json({
-    success: errors.length === 0,
+    success: prices.length > 0 && errors.length === 0,
     prices,
     errors: errors.length ? errors : undefined,
   });

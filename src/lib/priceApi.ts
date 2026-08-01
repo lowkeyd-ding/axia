@@ -167,6 +167,7 @@ async function fetchSymbol(
   const upper = symbol.toUpperCase().replace(/\.OF$/, '');
 
   if (assetType === 'fund') {
+    // Try server-side fund API first
     try {
       const response = await fetch(`/api/fund-price?symbols=${encodeURIComponent(upper)}`);
       if (response.ok) {
@@ -176,7 +177,16 @@ async function fetchSymbol(
         }
       }
     } catch {
-      // Fall through to null
+      // Fall through to external fallback
+    }
+
+    // Fallback: direct browser fetch to EastMoney (bypasses Vercel serverless)
+    try {
+      const { fetchSymbol: externalFetch } = await import('@/lib/externalPriceApi');
+      const result = await externalFetch(upper);
+      if (result) return { ...result, symbol: upper };
+    } catch {
+      // All sources exhausted
     }
 
     return null;
