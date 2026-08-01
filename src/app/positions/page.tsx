@@ -193,15 +193,31 @@ function PositionsPageContent() {
 
       const successfulSymbols = new Set(result.prices?.map((p) => p.symbol) || []);
       failedCount = symbols.filter((s) => !successfulSymbols.has(s)).length;
-      const errorDetail = result.errors?.length ? `；原因：${result.errors.join('，')}` : '';
+      const failureMap = new Map<string, string>();
+      (result.errorDetails || []).forEach((item) => {
+        failureMap.set(item.symbol.toUpperCase(), item.reason);
+      });
+      const fallbackFailures = (result.errors || [])
+        .map((message) => {
+          const [symbol, ...rest] = message.split(':');
+          return { symbol: symbol.trim(), reason: rest.join(':').trim() || '未知原因' };
+        });
+      fallbackFailures.forEach((item) => {
+        if (!failureMap.has(item.symbol.toUpperCase())) {
+          failureMap.set(item.symbol.toUpperCase(), item.reason);
+        }
+      });
+      const failedBySymbol = symbols
+        .filter((s) => !successfulSymbols.has(s))
+        .map((symbol) => `${symbol}: ${failureMap.get(symbol) || '未命中任何可用来源'}`);
       if (successCount > 0) {
         setRefreshStatus(
           failedCount > 0
-            ? `部分行情更新失败（成功 ${successCount}，失败 ${failedCount}）${errorDetail}`
+            ? `部分行情更新失败（成功 ${successCount}，失败 ${failedCount}）\n${failedBySymbol.join('\n')}`
             : `已于 ${formatBusinessDateTime(new Date())} 刷新`
         );
       } else if (failedCount > 0) {
-        setRefreshStatus(`行情更新失败（失败 ${failedCount}）${errorDetail || '；请稍后重试'}`);
+        setRefreshStatus(`行情更新失败（失败 ${failedCount}）\n${failedBySymbol.join('\n') || '请稍后重试'}`);
       } else if (symbols.length === 0) {
         setRefreshStatus('暂无可更新的行情标的');
       }
@@ -209,7 +225,7 @@ function PositionsPageContent() {
       failedCount = positions.filter(
         (p) => p.assetType !== 'bank_wealth_management' && p.assetType !== 'bank_cash'
       ).length;
-      setRefreshStatus(failedCount > 0 ? `行情更新失败（失败 ${failedCount}）；请检查网络或上游接口` : '暂无可更新的行情标的');
+      setRefreshStatus(failedCount > 0 ? `行情更新失败（失败 ${failedCount}）\n请检查网络或上游接口` : '暂无可更新的行情标的');
     } finally {
       setIsRefreshing(false);
       if (successCount > 0 || failedCount > 0) {
@@ -241,7 +257,7 @@ function PositionsPageContent() {
         setRefreshStatus(`已于 ${formatBusinessDateTime(new Date())} 刷新`);
         setPriceUpdateToast({ success: 1, failed: 0 });
       } else {
-        setRefreshStatus('行情更新失败（成功 0，失败 1）；请检查该基金是否能访问上游净值接口');
+        setRefreshStatus(`行情更新失败（成功 0，失败 1）\n${position.symbol}: 请检查该基金是否能访问上游净值接口`);
         setPriceUpdateToast({ success: 0, failed: 1 });
       }
     } catch {

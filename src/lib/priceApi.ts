@@ -69,10 +69,17 @@ function getClientStale(symbol: string): PriceData | null {
   };
 }
 
+export interface RefreshPriceError {
+  symbol: string;
+  assetType?: 'stock' | 'fund';
+  reason: string;
+}
+
 export interface RefreshPricesResult {
   success: boolean;
   prices?: PriceData[];
   errors?: string[];
+  errorDetails?: RefreshPriceError[];
 }
 
 // Mock fallback data
@@ -173,11 +180,13 @@ export async function refreshPricesByType(
 
     const results: PriceData[] = [];
     const errors: string[] = [];
+    const errorDetails: RefreshPriceError[] = [];
 
     for (const { symbol, result } of prices) {
       if (result) {
         results.push(result);
       } else {
+        const assetType = assetTypes[symbols.findIndex((s) => s === symbol)] as 'stock' | 'fund' | undefined;
         const mock = MOCK_PRICES[symbol.toUpperCase()];
         if (mock) {
           results.push({
@@ -195,7 +204,11 @@ export async function refreshPricesByType(
             source: 'manual'
           });
         } else {
-          errors.push(`无法获取 ${symbol}`);
+          const reason = assetType === 'fund'
+            ? '基金行情未命中任何可用来源（server / fund direct / cache）'
+            : '股票行情未命中任何可用来源（server / direct / cache）';
+          errors.push(`${symbol}: ${reason}`);
+          errorDetails.push({ symbol, assetType, reason });
         }
       }
     }
@@ -204,6 +217,7 @@ export async function refreshPricesByType(
       success: errors.length === 0,
       prices: results,
       errors: errors.length > 0 ? errors : undefined,
+      errorDetails: errorDetails.length > 0 ? errorDetails : undefined,
     };
   } catch (error) {
     console.error('Price API error:', error);
