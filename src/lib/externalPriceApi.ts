@@ -17,6 +17,8 @@ export interface PriceData {
   timestamp: string;
   source: 'realtime' | 'fund' | 'manual';
   exchange?: string;
+  dataTier?: 'realtime' | 'estimate' | 'confirmed' | 'cached' | 'stale';
+  sourceLabel?: string;
 }
 
 const MOCK_PRICES: Record<string, { price: number; change: number; name: string }> = {

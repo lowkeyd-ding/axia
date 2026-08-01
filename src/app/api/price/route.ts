@@ -34,6 +34,8 @@ type PriceResult = { symbol: string; error: string } | {
   volume: number;
   timestamp: string;
   source: string;
+  dataTier?: string;
+  sourceLabel?: string;
 };
 
 type FundResult = PriceResult | { symbol: string; error: string };
@@ -118,6 +120,8 @@ async function fetchLatestConfirmedNAV(symbol: string): Promise<FundResult> {
     volume: 0,
     timestamp: `${latest.FSRQ}T15:00:00+08:00`,
     source: 'fund',
+    dataTier: 'confirmed',
+    sourceLabel: '东方财富历史净值',
   };
 }
 
@@ -157,6 +161,8 @@ async function fetchOFFundNAV(symbol: string): Promise<FundResult> {
             volume: 0,
             timestamp: data.gztime || data.jzrq,
             source: 'fund',
+            dataTier: 'estimate',
+            sourceLabel: '天天基金盘中估值',
           };
         }
       }
@@ -220,6 +226,8 @@ async function fetchFundNAV(symbol: string): Promise<FundResult> {
       volume: info.f47 || 0,
       timestamp: new Date().toISOString(),
       source: 'fund',
+      dataTier: 'realtime',
+      sourceLabel: '东方财富场内行情',
     };
   } catch (err) {
     return { symbol, error: err instanceof Error ? err.message : 'Unknown error' };

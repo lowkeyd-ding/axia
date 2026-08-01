@@ -5,7 +5,7 @@ import { formatBusinessDateTime } from '@/lib/businessDate';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
-import { refreshPricesByType, getPrice } from '@/lib/priceApi';
+import { refreshPricesByType, getPrice, type PriceData } from '@/lib/priceApi';
 import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
 import type { Position, Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
@@ -71,6 +71,7 @@ function PositionsPageContent() {
     return result;
   }, [positions, accounts, fxRates]);
 
+  const [priceTierMap, setPriceTierMap] = useState<Map<string, { tier: string; sourceLabel?: string; timestamp?: string }>>(new Map());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [refreshStatus, setRefreshStatus] = useState<string | null>(null);
@@ -174,6 +175,16 @@ function PositionsPageContent() {
           );
           matchingPositions.forEach((position) => {
             updatePosition(position.id, { currentPrice: priceData.price });
+            const cacheKey = position.id;
+            setPriceTierMap((current) => {
+              const next = new Map(current);
+              next.set(cacheKey, {
+                tier: priceData.dataTier || 'cached',
+                sourceLabel: priceData.sourceLabel,
+                timestamp: priceData.timestamp,
+              });
+              return next;
+            });
             successCount++;
           });
         });
@@ -218,6 +229,15 @@ function PositionsPageContent() {
 
       if (result) {
         updatePosition(position.id, { currentPrice: result.price });
+        setPriceTierMap((current) => {
+          const next = new Map(current);
+          next.set(position.id, {
+            tier: result.dataTier || 'cached',
+            sourceLabel: result.sourceLabel,
+            timestamp: result.timestamp,
+          });
+          return next;
+        });
         setRefreshStatus(`已于 ${formatBusinessDateTime(new Date())} 刷新`);
         setPriceUpdateToast({ success: 1, failed: 0 });
       } else {
@@ -375,6 +395,14 @@ function PositionsPageContent() {
     if (assetType === 'fund') return '基金净值';
     if (assetType === 'stock') return '实时行情';
     return '手动';
+  };
+
+  const DATA_TIER_META: Record<string, { label: string; color: string }> = {
+    realtime: { label: '实时', color: 'text-blue-600 bg-blue-50 border-blue-200' },
+    estimate: { label: '盘中估值', color: 'text-amber-600 bg-amber-50 border-amber-200' },
+    confirmed: { label: '确认净值', color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+    cached: { label: '缓存', color: 'text-zinc-500 bg-zinc-50 border-zinc-200' },
+    stale: { label: '已过期', color: 'text-red-500 bg-red-50 border-red-200' },
   };
 
   return (
@@ -545,17 +573,39 @@ function PositionsPageContent() {
 
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <p className="text-base font-medium text-zinc-900">
-                          {position.assetType === 'fund' 
-                            ? formatPrice(position.currentPrice, position.assetType)
-                            : formatDualCurrency(position.currentPrice, currency)}
-                        </p>
+                        <div className="flex items-center justify-end gap-1.5 mb-0.5">
+                          <p className="text-base font-medium text-zinc-900">
+                            {position.assetType === 'fund' 
+                              ? formatPrice(position.currentPrice, position.assetType)
+                              : formatDualCurrency(position.currentPrice, currency)}
+                          </p>
+                          {(() => {
+                            const tierInfo = priceTierMap.get(position.id);
+                            if (!tierInfo) return null;
+                            const meta = DATA_TIER_META[tierInfo.tier];
+                            if (!meta) return null;
+                            return (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${meta.color}`}>
+                                {meta.label}
+                              </span>
+                            );
+                          })()}
+                        </div>
                         <div className={`flex flex-col items-end gap-0.5 text-sm ${pnlColor}`}>
                           <span>
                             {pnlAmount >= 0 ? '+' : '-'}{formatDualCurrency(Math.abs(pnlAmount), currency)}
                           </span>
                           <span className="text-xs">({formatPercent(pnlPercent)})</span>
                         </div>
+                        {(() => {
+                          const tierInfo = priceTierMap.get(position.id);
+                          if (!tierInfo?.sourceLabel) return null;
+                          return (
+                            <p className="text-[10px] text-zinc-400 mt-0.5">
+                              {tierInfo.sourceLabel}
+                            </p>
+                          );
+                        })()}
                       </div>
 
                       {/* Individual refresh button */}
