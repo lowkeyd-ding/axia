@@ -70,6 +70,9 @@ function getExchange(symbol: string): string {
   // Exchange-traded funds: 5xxxxx (SH), 15xxxx/16xxxx/18xxxx (SZ).
   // Do not classify every 1xxxxx code as listed: e.g. 110022 is an OTC fund.
   if (/^(?:5\d{5}|1(?:5|6|8)\d{4})$/.test(upper)) return 'FUND';
+  // OTC fund codes: 6-digit codes that don't match A-share stock patterns.
+  // Stock ranges: 000xxx-002xxx, 300xxx, 600xxx-605xxx, 688xxx.
+  if (/^\d{6}$/.test(upper) && !/^00[0-2]\d{3}$/.test(upper) && !/^300\d{3}$/.test(upper) && !/^6[0-5]\d{4}$/.test(upper) && !/^688\d{3}$/.test(upper)) return 'FUND_OTC';
   if (/^[023]\d{5}$/.test(upper)) return 'SZ';
   if (/^[569]\d{5}$/.test(upper)) return 'SH';
   if (/^\d{5}$/.test(upper)) return 'HK';
@@ -255,6 +258,7 @@ export async function GET(request: NextRequest) {
       const exchange = getExchange(symbol);
       if (exchange === 'FUND_OF') return fetchOFFundNAV(symbol);
       if (exchange === 'FUND') return fetchFundNAV(symbol);
+      if (exchange === 'FUND_OTC') return fetchOFFundNAV(symbol);
       return { symbol, error: '暂不支持该标的类型' };
     }))
   );

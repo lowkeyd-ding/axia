@@ -324,6 +324,8 @@ function getExchange(symbol: string): string {
   if (/\.OF$/i.test(upper)) return 'FUND_OF';
   // Exchange-traded funds: 5xxxxx (SH), 15xxxx/16xxxx/18xxxx (SZ).
   if (/^(?:5\d{5}|1(?:5|6|8)\d{4})$/.test(upper)) return 'FUND';
+  // OTC fund codes: 6-digit codes that don't match A-share stock patterns.
+  if (/^\d{6}$/.test(upper) && !/^00[0-2]\d{3}$/.test(upper) && !/^300\d{3}$/.test(upper) && !/^6[0-5]\d{4}$/.test(upper) && !/^688\d{3}$/.test(upper)) return 'FUND_OTC';
   if (/^[023]\d{5}$/.test(upper)) return 'SZ';
   if (/^[569]\d{5}$/.test(upper)) return 'SH';
   if (/^\d{5}$/.test(upper)) return 'HK';
@@ -337,6 +339,7 @@ export async function fetchSymbol(symbol: string): Promise<PriceData | null> {
 
   if (exchange === 'FUND_OF') return fetchOFFundNAV(symbol);
   if (exchange === 'FUND') return fetchFundNAV(symbol);
+  if (exchange === 'FUND_OTC') return fetchOtcFundDirect(symbol);
   if (exchange === 'SZ' || exchange === 'SH' || exchange === 'HK') return fetchFromSina(symbol);
   if (exchange === 'US') return parseUSResponse(symbol);
   return null;
