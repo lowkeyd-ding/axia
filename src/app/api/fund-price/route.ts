@@ -25,6 +25,28 @@ const MAX_SYMBOLS = 20;
 const REQUEST_TIMEOUT_MS = 8_000;
 const SYMBOL_PATTERN = /^\d{6}(?:\.OF)?$/i;
 
+// Server-side cache: keeps last successful price per symbol so that when all live sources fail,
+// the API can still return the most recent known value with dataTier 'cached' (≤ 1h old) or 'stale' (> 1h).
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const priceCache = new Map<string, { price: NonNullable<FundPriceResult>; timestamp: number }>();
+
+type FundPriceResult = {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  prevClose: number;
+  open: number;
+  high: number;
+  low: number;
+  volume: number;
+  timestamp: string;
+  source: 'fund';
+  dataTier: 'realtime' | 'estimate' | 'confirmed' | 'cached' | 'stale';
+  sourceLabel: string;
+} | null;
+
 async function fetchWithTimeout(url: string, init: RequestInit = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -67,6 +89,8 @@ async function fetchListedFund(symbol: string) {
     volume: Number(info?.f47) || 0,
     timestamp: new Date().toISOString(),
     source: 'fund' as const,
+    dataTier: 'realtime' as const,
+    sourceLabel: '东方财富场内行情' as const,
   };
 }
 
@@ -109,6 +133,8 @@ async function fetchConfirmedNav(symbol: string) {
     volume: 0,
     timestamp: `${latest.FSRQ}T15:00:00+08:00`,
     source: 'fund' as const,
+    dataTier: 'confirmed' as const,
+    sourceLabel: '东方财富历史净值' as const,
   };
 }
 
@@ -140,6 +166,8 @@ async function fetchOtcFund(symbol: string) {
             volume: 0,
             timestamp: data.gztime || data.jzrq,
             source: 'fund' as const,
+            dataTier: 'estimate' as const,
+            sourceLabel: '天天基金盘中估值' as const,
           };
         }
       }
@@ -179,8 +207,37 @@ export async function GET(request: NextRequest) {
       const price = isExchangeTradedFund(symbol)
         ? await fetchListedFund(symbol)
         : await fetchOtcFund(symbol);
-      return price ? { price } : { error: `${symbol}: 未获取到基金净值` };
+      if (price) {
+        priceCache.set(symbol, { price, timestamp: Date.now() });
+        return { price };
+      }
+      // All live sources failed — check cache
+      const cached = priceCache.get(symbol);
+      if (cached) {
+        const age = Date.now() - cached.timestamp;
+        return {
+          price: {
+            ...cached.price,
+            dataTier: age < CACHE_TTL_MS ? 'cached' as const : 'stale' as const,
+            sourceLabel: age < CACHE_TTL_MS
+              ? `${cached.price.sourceLabel}（缓存）`
+              : `${cached.price.sourceLabel}（已过期）`,
+          },
+        };
+      }
+      return { error: `${symbol}: 未获取到基金净值` };
     } catch {
+      // Exception — still try cache
+      const cached = priceCache.get(symbol);
+      if (cached) {
+        return {
+          price: {
+            ...cached.price,
+            dataTier: 'stale' as const,
+            sourceLabel: `${cached.price.sourceLabel}（已过期）`,
+          },
+        };
+      }
       return { error: `${symbol}: 基金净值服务暂时不可用` };
     }
   }));
@@ -188,7 +245,7 @@ export async function GET(request: NextRequest) {
   const prices = settled.flatMap((item) => item.price ? [item.price] : []);
   const errors = settled.flatMap((item) => item.error ? [item.error] : []);
   return NextResponse.json({
-    success: prices.length > 0 && errors.length === 0,
+    success: prices.length > 0,
     prices,
     errors: errors.length ? errors : undefined,
   });

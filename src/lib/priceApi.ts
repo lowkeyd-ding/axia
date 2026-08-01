@@ -16,6 +16,57 @@ export interface PriceData {
   volume?: number;
   timestamp: string;
   source: 'realtime' | 'fund' | 'manual';
+  dataTier?: 'realtime' | 'estimate' | 'confirmed' | 'cached' | 'stale';
+  sourceLabel?: string;
+}
+
+export const DATA_TIER_LABELS: Record<string, string> = {
+  realtime: '实时行情',
+  estimate: '盘中估值',
+  confirmed: '确认净值',
+  cached: '缓存',
+  stale: '已过期',
+};
+
+const CLIENT_CACHE_KEY = 'axia_price_cache_v1';
+const CLIENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+function getClientCache(): Record<string, { price: PriceData; timestamp: number }> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(CLIENT_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeClientCache(cache: Record<string, { price: PriceData; timestamp: number }>) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(CLIENT_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function setClientCached(symbol: string, price: PriceData) {
+  const cache = getClientCache();
+  cache[symbol.toUpperCase()] = { price, timestamp: Date.now() };
+  writeClientCache(cache);
+}
+
+function getClientStale(symbol: string): PriceData | null {
+  const cache = getClientCache();
+  const entry = cache[symbol.toUpperCase()];
+  if (!entry) return null;
+  const age = Date.now() - entry.timestamp;
+  if (age > CLIENT_CACHE_TTL_MS) return null;
+  return {
+    ...entry.price,
+    dataTier: 'stale',
+    sourceLabel: entry.price.sourceLabel ? `${entry.price.sourceLabel}（已过期）` : '已过期',
+  };
 }
 
 export interface RefreshPricesResult {
@@ -173,7 +224,9 @@ async function fetchSymbol(
       if (response.ok) {
         const data = await response.json();
         if (data.prices && data.prices.length > 0) {
-          return { ...data.prices[0], symbol: upper };
+          const price = { ...data.prices[0], symbol: upper };
+          setClientCached(upper, price);
+          return price;
         }
       }
     } catch {
@@ -184,12 +237,16 @@ async function fetchSymbol(
     try {
       const { fetchSymbol: externalFetch } = await import('@/lib/externalPriceApi');
       const result = await externalFetch(upper);
-      if (result) return { ...result, symbol: upper };
+      if (result) {
+        const price = { ...result, symbol: upper };
+        setClientCached(upper, price);
+        return price;
+      }
     } catch {
       // All sources exhausted
     }
 
-    return null;
+    return getClientStale(upper);
   }
 
   try {
