@@ -235,8 +235,11 @@ async function fetchSymbol(
 
     // Fallback: direct browser fetch to EastMoney (bypasses Vercel serverless)
     try {
-      const { fetchSymbol: externalFetch } = await import('@/lib/externalPriceApi');
-      const result = await externalFetch(upper);
+      const { fetchOtcFundDirect } = await import('@/lib/externalPriceApi');
+      const isEtf = /^(?:5\d{5}|1(?:5|6|8)\d{4})$/.test(upper);
+      const result = isEtf
+        ? await (await import('@/lib/externalPriceApi')).fetchSymbol(upper)
+        : await fetchOtcFundDirect(upper);
       if (result) {
         const price = { ...result, symbol: upper };
         setClientCached(upper, price);

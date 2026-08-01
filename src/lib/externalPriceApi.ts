@@ -342,6 +342,146 @@ export async function fetchSymbol(symbol: string): Promise<PriceData | null> {
   return null;
 }
 
+/**
+ * Direct browser fetch for OTC fund NAV.
+ * Used as a fallback when the server-side /api/fund-price route is unreachable.
+ * Unlike fetchSymbol, this always treats the code as a fund regardless of getExchange.
+ */
+export async function fetchOtcFundDirect(symbol: string): Promise<PriceData | null> {
+  const fundCode = symbol.toUpperCase().replace(/\.OF$/, '');
+
+  // Try intraday estimate first
+  try {
+    const response = await fetch(`https://fundgz.1234567.com.cn/js/${fundCode}.js?rt=${Date.now()}`, {
+      headers: { Referer: 'https://fund.eastmoney.com', 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (response.ok) {
+      const match = (await response.text()).match(/jsonpgz\((.+)\)/);
+      if (match) {
+        const data = JSON.parse(match[1]);
+        const price = Number(data.gsz);
+        const prevClose = Number(data.dwjz);
+        if (Number.isFinite(price) && price > 0 && Number.isFinite(prevClose) && prevClose > 0) {
+          const change = price - prevClose;
+          return {
+            symbol: fundCode,
+            name: data.name || fundCode,
+            price,
+            change,
+            changePercent: (change / prevClose) * 100,
+            prevClose,
+            open: price,
+            high: price,
+            low: price,
+            volume: 0,
+            timestamp: data.gztime || data.jzrq,
+            source: 'fund',
+            dataTier: 'estimate',
+            sourceLabel: '天天基金盘中估值',
+          };
+        }
+      }
+    }
+  } catch {
+    // Continue to confirmed NAV
+  }
+
+  // Try confirmed NAV (lsjz endpoint)
+  try {
+    const response = await fetch(
+      `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${fundCode}&pageIndex=1&pageSize=2`,
+      {
+        headers: { Referer: 'https://fundf10.eastmoney.com/', 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(8000),
+      }
+    );
+    if (response.ok) {
+      const body = await response.json();
+      const rows = body?.Data?.LSJZList;
+      const latest = rows?.[0];
+      const price = Number(latest?.DWJZ);
+      if (latest && Number.isFinite(price) && price > 0) {
+        const previous = Number(rows?.[1]?.DWJZ);
+        const reportedPercent = Number(latest.JZZZL);
+        const prevClose = Number.isFinite(previous) && previous > 0
+          ? previous
+          : Number.isFinite(reportedPercent) && reportedPercent !== -100
+            ? price / (1 + reportedPercent / 100)
+            : price;
+        const change = price - prevClose;
+        return {
+          symbol: fundCode,
+          name: fundCode,
+          price,
+          change,
+          changePercent: prevClose > 0 ? (change / prevClose) * 100 : 0,
+          prevClose,
+          open: price,
+          high: price,
+          low: price,
+          volume: 0,
+          timestamp: `${latest.FSRQ}T15:00:00+08:00`,
+          source: 'fund',
+          dataTier: 'confirmed',
+          sourceLabel: '东方财富历史净值',
+        };
+      }
+    }
+  } catch {
+    // Continue to pingzhongdata
+  }
+
+  // Try pingzhongdata (fund page data)
+  try {
+    const response = await fetch(`https://fund.eastmoney.com/pingzhongdata/${fundCode}.js?v=${Date.now()}`, {
+      headers: { Referer: `https://fund.eastmoney.com/${fundCode}.html`, 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (response.ok) {
+      const text = await response.text();
+      const name = text.match(/var\s+fS_name\s*=\s*"([^"]+)"/)?.[1] || fundCode;
+      const trendRaw = text.match(/var\s+Data_netWorthTrend\s*=\s*(\[[\s\S]*?\]);/)?.[1];
+      if (trendRaw) {
+        const trend = JSON.parse(trendRaw) as { x: number; y: number; equityReturn?: number }[];
+        const latest = trend.at(-1);
+        const previous = trend.at(-2);
+        const price = Number(latest?.y);
+        const previousPrice = Number(previous?.y);
+        if (latest && Number.isFinite(price) && price > 0) {
+          const reportedPercent = Number(latest.equityReturn);
+          const prevClose = Number.isFinite(previousPrice) && previousPrice > 0
+            ? previousPrice
+            : Number.isFinite(reportedPercent) && reportedPercent !== -100
+              ? price / (1 + reportedPercent / 100)
+              : price;
+          const change = price - prevClose;
+          return {
+            symbol: fundCode,
+            name,
+            price,
+            change,
+            changePercent: prevClose > 0 ? (change / prevClose) * 100 : 0,
+            prevClose,
+            open: price,
+            high: price,
+            low: price,
+            volume: 0,
+            timestamp: new Date(latest.x).toISOString(),
+            source: 'fund',
+            dataTier: 'confirmed',
+            sourceLabel: '东方财富基金页数据',
+          };
+        }
+      }
+    }
+  } catch {
+    // All direct sources exhausted
+  }
+
+  return null;
+}
+
 async function fetchOFFundNAV(symbol: string): Promise<PriceData | null> {
   try {
     const response = await fetch(`/api/fund-price?symbols=${encodeURIComponent(symbol)}`, {
