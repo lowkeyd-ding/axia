@@ -21,7 +21,7 @@ import type { Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
 import { useFxRates } from '@/lib/hooks/useFxRates';
 import { usePnLStats } from '@/lib/hooks/usePnLStats';
-import { convertToAccountCNY, getEffectiveCurrency } from '@/lib/fx';
+import { convertToAccountCNY, getEffectiveCurrency, getPositionCurrency } from '@/lib/fx';
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
 import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
 import { computeCashFlowAdjustedPerformance } from '@/lib/performance';
@@ -123,7 +123,7 @@ export default function HomePage() {
     positions.forEach((p) => {
       const account = accounts.find((a) => a.id === p.accountId);
       const acctCcy = account?.currency || 'CNY';
-      const posCcy = getEffectiveCurrency(p.currency, acctCcy, p.symbol, p.assetType);
+      const posCcy = getPositionCurrency(p.symbol, p.assetType, p.currency, acctCcy);
       const positionValueCNY = convertToAccountCNY(p.currentPrice * p.quantity, posCcy, 'CNY', fxRates);
       const positionCostCNY = convertToAccountCNY(p.avgCost * p.quantity, posCcy, 'CNY', fxRates);
       totalInvestCNY += positionValueCNY;

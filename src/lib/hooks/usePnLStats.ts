@@ -13,7 +13,7 @@
 import { useMemo } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useFxRates } from './useFxRates';
-import { convertToAccountCNY, getEffectiveCurrency, type FxRates } from '@/lib/fx';
+import { convertToAccountCNY, getPositionCurrency, getEffectiveCurrency, type FxRates } from '@/lib/fx';
 
 export interface PeriodPnL {
   change: number;
@@ -87,7 +87,7 @@ function aggregatePnL(
   for (const pos of positions) {
     const account = accounts.find(a => a.id === pos.accountId);
     const acctCcy = account?.currency || 'CNY';
-    const posCcy = getEffectiveCurrency(pos.currency, acctCcy, (pos as { symbol?: string }).symbol, (pos as { assetType?: string }).assetType);
+    const posCcy = getPositionCurrency((pos as { symbol?: string }).symbol || '', (pos as { assetType?: string }).assetType, pos.currency, acctCcy);
 
     // Current total value in CNY
     const curValue = convertToAccountCNY(pos.currentPrice * pos.quantity, posCcy, 'CNY', fxRates);

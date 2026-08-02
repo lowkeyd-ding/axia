@@ -229,16 +229,23 @@ export function getEffectiveCurrency(
  * 根据股票代码推断币种（辅助函数）
  */
 export function inferCurrencyFromSymbol(symbol: string): string {
-  const upper = symbol.toUpperCase();
-  // 5 位数字 → 港股（HKD），但港股通也是 HKD，适用同样规则
+  const upper = symbol.trim().toUpperCase();
+  // Hong Kong listed shares use five-digit numeric codes, including leading zeroes.
   if (/^\d{5}$/.test(upper)) return 'HKD';
-  // A 股（沪深）
-  if (/^[0236]\d{5}$/.test(upper)) return 'CNY';
-  // 基金 5 位
-  if (/^5\d{5}$/.test(upper)) return 'CNY';
-  // 美股字母股
-  if (/^[A-Z]{1,5}$/.test(upper)) return 'USD';
+  // US listed shares use alphabetic tickers.
+  if (/^[A-Z][A-Z0-9.]{0,9}$/.test(upper) && upper.length <= 5) return 'USD';
+  // Mainland A-shares and mainland funds use CNY.
   return 'CNY';
+}
+
+export function getPositionCurrency(
+  symbol: string,
+  assetType: string | undefined,
+  storedCurrency: string | undefined,
+  accountCurrency: string
+): string {
+  if (assetType === 'stock') return inferCurrencyFromSymbol(symbol);
+  return storedCurrency || accountCurrency;
 }
 
 /**
