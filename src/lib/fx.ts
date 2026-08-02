@@ -214,12 +214,13 @@ export async function convertToAccountCNYAsync(
 export function getEffectiveCurrency(
   posCurrency: string | undefined,
   acctCurrency: string,
-  symbol?: string
+  symbol?: string,
+  assetType?: string
 ): string {
-  // Symbol conventions correct legacy records that were saved with the account currency.
-  if (symbol) {
+  // Listed foreign equities keep their market currency even when legacy records stored the account currency.
+  if (symbol && assetType === 'stock') {
     const inferred = inferCurrencyFromSymbol(symbol);
-    if (inferred !== 'CNY' || posCurrency == null) return inferred;
+    if (inferred !== 'CNY') return inferred;
   }
   return posCurrency || acctCurrency;
 }

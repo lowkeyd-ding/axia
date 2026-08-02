@@ -123,9 +123,11 @@ export default function HomePage() {
     positions.forEach((p) => {
       const account = accounts.find((a) => a.id === p.accountId);
       const acctCcy = account?.currency || 'CNY';
-      const posCcy = getEffectiveCurrency(p.currency, acctCcy, p.symbol);
-      totalInvestCNY += convertToAccountCNY(p.currentPrice * p.quantity, posCcy, 'CNY', fxRates);
-      totalCostBasis += convertToAccountCNY(p.avgCost * p.quantity, posCcy, 'CNY', fxRates);
+      const posCcy = getEffectiveCurrency(p.currency, acctCcy, p.symbol, p.assetType);
+      const positionValueCNY = convertToAccountCNY(p.currentPrice * p.quantity, posCcy, 'CNY', fxRates);
+      const positionCostCNY = convertToAccountCNY(p.avgCost * p.quantity, posCcy, 'CNY', fxRates);
+      totalInvestCNY += positionValueCNY;
+      totalCostBasis += positionCostCNY;
     });
 
     return {

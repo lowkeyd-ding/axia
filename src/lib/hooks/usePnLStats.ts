@@ -87,7 +87,7 @@ function aggregatePnL(
   for (const pos of positions) {
     const account = accounts.find(a => a.id === pos.accountId);
     const acctCcy = account?.currency || 'CNY';
-    const posCcy = getEffectiveCurrency(pos.currency, acctCcy, (pos as { symbol?: string }).symbol);
+    const posCcy = getEffectiveCurrency(pos.currency, acctCcy, (pos as { symbol?: string }).symbol, (pos as { assetType?: string }).assetType);
 
     // Current total value in CNY
     const curValue = convertToAccountCNY(pos.currentPrice * pos.quantity, posCcy, 'CNY', fxRates);
