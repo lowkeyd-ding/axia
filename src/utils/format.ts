@@ -43,9 +43,9 @@ export function formatDualCurrency(
   currency: string,
   cnyValue?: number
 ): string {
-  const native = formatCurrency(value, currency);
-  if (!currency || currency === 'CNY' || cnyValue == null) return native;
-  return `${formatCurrency(cnyValue, 'CNY')}（折算人民币）`;
+  if (!currency || cnyValue == null) return formatCurrency(value, currency);
+  if (currency === 'CNY') return formatCurrency(cnyValue, 'CNY');
+  return `${formatCurrency(cnyValue, 'CNY')}（原币 ${formatNumber(value)} ${currency}）`;
 }
 
 export function formatPercent(value: number, showSign = true): string {

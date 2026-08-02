@@ -711,7 +711,7 @@ export default function AccountsPage() {
                           {formatDualCurrency(totalAssetsNative, account.currency, totalAssets)}
                         </p>
                         <p className="mt-0.5 text-[11px] text-zinc-400">
-                          折算人民币：统一按人民币口径展示。
+                          折算人民币展示
                         </p>
                         <div className="flex items-center justify-end gap-2 text-xs">
                           <span className="text-zinc-400">
