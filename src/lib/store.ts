@@ -508,6 +508,22 @@ export const useAppStore = create<AppState>()(
       roundedUpdates.quantity = roundQuantity(updates.quantity);
     }
 
+    // A changed acquisition date invalidates period baselines captured for the old holding timeline.
+    if (updates.buyDate !== undefined && updates.buyDate !== position.buyDate) {
+      const today = todayDate();
+      const month = todayMonth();
+      const year = todayYear();
+      const price = roundedUpdates.currentPrice ?? position.currentPrice;
+      Object.assign(roundedUpdates, {
+        dailyBasePrice: roundPrice(price),
+        monthlyBasePrice: roundPrice(price),
+        yearlyBasePrice: roundPrice(price),
+        dailyBaseDate: today,
+        monthlyBaseMonth: month,
+        yearlyBaseYear: year,
+      });
+    }
+
     // Auto-capture baseline when period boundary changes; locked thereafter
     if (updates.currentPrice !== undefined) {
       const base = captureBaseline(position, updates.currentPrice, roundPrice);
