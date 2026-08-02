@@ -45,8 +45,9 @@ const initialFormData: FormData = {
 export default function TradesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { trades, accounts, positions, executeTrade } = useAppStore();
+  const { trades, accounts, positions, executeTrade, updateTrade } = useAppStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingTradeId, setEditingTradeId] = useState<string | null>(null);
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
   const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolInfo[]>([]);
@@ -180,7 +181,7 @@ export default function TradesPage() {
       }
     }
 
-    const result = executeTrade({
+    const tradeData = {
       accountId: formData.accountId,
       assetType: formData.assetType,
       symbol: formData.symbol.trim().toUpperCase(),
@@ -191,10 +192,14 @@ export default function TradesPage() {
       total,
       fees,
       executedAt: new Date(formData.executedAt).toISOString(),
-    });
+    };
+    const result = editingTradeId
+      ? updateTrade(editingTradeId, tradeData)
+      : executeTrade(tradeData);
 
     if (result.success) {
-      setTradeResult({ success: true, message: `${formData.type === 'buy' ? '买入' : '卖出'}成功！` });
+      setTradeResult({ success: true, message: editingTradeId ? '交易记录已更新！' : `${formData.type === 'buy' ? '买入' : '卖出'}成功！` });
+      setEditingTradeId(null);
       setFormData(initialFormData);
       setErrors({});
       setSymbolSuggestions([]);
@@ -206,6 +211,7 @@ export default function TradesPage() {
   };
 
   const handleClose = () => {
+    setEditingTradeId(null);
     setFormData(initialFormData);
     setErrors({});
     setSymbolSuggestions([]);
@@ -214,11 +220,31 @@ export default function TradesPage() {
     if (searchParams.get('new') === '1') router.replace('/trades');
   };
 
+  const openEditModal = (tradeId: string) => {
+    const trade = trades.find((item) => item.id === tradeId);
+    if (!trade) return;
+    setEditingTradeId(tradeId);
+    setFormData({
+      accountId: trade.accountId,
+      assetType: trade.assetType,
+      symbol: trade.symbol,
+      name: trade.name,
+      type: trade.type,
+      quantity: String(trade.quantity),
+      price: String(trade.price),
+      fees: String(trade.fees ?? 0),
+      executedAt: new Date(trade.executedAt).toISOString().slice(0, 16),
+    });
+    setErrors({});
+    setIsModalOpen(true);
+  };
+
   const openAddModal = (type: 'buy' | 'sell' = 'buy') => {
     if (accounts.length === 0) {
       setTradeResult({ success: false, message: '请先添加账户' });
       return;
     }
+    setEditingTradeId(null);
     setFormData({ ...initialFormData, accountId: accounts[0].id, type });
     setIsModalOpen(true);
   };
@@ -447,6 +473,13 @@ export default function TradesPage() {
                       <p className="text-xs font-medium text-zinc-700">
                         {isBuy ? '含费总支出' : '扣费后收入'}：{formatCurrency(cashWithFees, currency)}
                       </p>
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(trade.id)}
+                        className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-700"
+                      >
+                        修改记录
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -464,7 +497,7 @@ export default function TradesPage() {
           <div className="w-full max-w-lg bg-white border border-zinc-200 rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-white border-b border-zinc-200">
               <h2 className="text-lg font-semibold text-zinc-900">
-                {formData.type === 'buy' ? '买入' : '卖出'}
+                {editingTradeId ? '修改交易记录' : formData.type === 'buy' ? '买入' : '卖出'}
               </h2>
               <button
                 onClick={handleClose}
@@ -758,7 +791,7 @@ export default function TradesPage() {
                     : 'bg-red-500 hover:bg-red-600'
                 }`}
               >
-                确认{formData.type === 'buy' ? '买入' : '卖出'}
+                {editingTradeId ? '保存修改' : `确认${formData.type === 'buy' ? '买入' : '卖出'}`}
               </button>
             </div>
           </div>
