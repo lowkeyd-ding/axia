@@ -706,7 +706,7 @@ export default function AccountsPage() {
                       </div>
                     </div>
                     <div className="w-[520px] flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
-                      <div className="text-right">
+                      <div className="flex flex-col items-end text-right">
                         <p className="text-lg font-semibold text-zinc-900">
                           {formatNativeAmount(totalAssetsNative, account.currency)}
                         </p>

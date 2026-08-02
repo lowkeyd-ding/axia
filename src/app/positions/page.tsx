@@ -590,7 +590,7 @@ function PositionsPageContent() {
                     </Link>
 
                     <div className="w-[520px] flex items-center gap-3">
-                      <div className="text-right">
+                      <div className="flex flex-col items-end text-right">
                         <div className="flex items-center justify-end gap-1.5 mb-0.5">
                           <p className="text-base font-medium text-zinc-900">
                             {position.assetType === 'fund' 
