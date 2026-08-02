@@ -20,7 +20,7 @@ export async function getHkexSettlementRate(): Promise<{ rate: HkexSettlementRat
 
   if (!url || !anonKey) {
     return {
-      rate: { date: '', bid: 0.8649, ask: 0.8649 },
+      rate: { date: '2026-07-31', bid: 0.86117, ask: 0.86123 },
       source: 'default',
     };
   }
@@ -47,6 +47,6 @@ export async function getHkexSettlementRate(): Promise<{ rate: HkexSettlementRat
     console.error('[hkexRateClient] Fetch error:', err);
   }
 
-  const defaultRate: HkexSettlementRates = { date: '', bid: 0.8649, ask: 0.8649 };
+  const defaultRate: HkexSettlementRates = { date: '2026-07-31', bid: 0.86117, ask: 0.86123 };
   return { rate: defaultRate, source: 'default' };
 }
