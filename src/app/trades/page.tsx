@@ -45,7 +45,7 @@ const initialFormData: FormData = {
 export default function TradesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { trades, accounts, positions, executeTrade, updateTrade } = useAppStore();
+  const { trades, accounts, positions, executeTrade, updateTrade, deleteTrade } = useAppStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTradeId, setEditingTradeId] = useState<string | null>(null);
   const [formData, setFormData] = useState<FormData>(initialFormData);
@@ -124,9 +124,28 @@ export default function TradesPage() {
 
   const getPositionQuantity = (accountId: string, symbol: string, assetType: AssetType) => {
     const position = positions.find(
-      (p) => p.accountId === accountId && p.symbol === symbol && p.assetType === assetType
+      (p) => p.accountId === accountId && p.symbol.toUpperCase() === symbol.toUpperCase() && p.assetType === assetType
     );
     return position?.quantity ?? 0;
+  };
+
+  const accountPositions = useMemo(
+    () => positions.filter((position) => position.accountId === formData.accountId && position.quantity > 0),
+    [positions, formData.accountId]
+  );
+
+  const selectPositionForSale = (positionId: string) => {
+    const position = accountPositions.find((item) => item.id === positionId);
+    if (!position) return;
+    setFormData((prev) => ({
+      ...prev,
+      assetType: position.assetType,
+      symbol: position.symbol,
+      name: position.name,
+      quantity: '',
+      price: '',
+    }));
+    setErrors({});
   };
 
   const formatDate = (dateStr: string) => {
@@ -163,6 +182,28 @@ export default function TradesPage() {
     const fees = parseFloat(formData.fees || '0');
     const total = quantity * price;
     const currency = getAccountCurrency(formData.accountId);
+
+    if (editingTradeId) {
+      const result = updateTrade(editingTradeId, {
+        accountId: formData.accountId,
+        assetType: formData.assetType,
+        symbol: formData.symbol.trim().toUpperCase(),
+        name: formData.name.trim(),
+        type: formData.type,
+        quantity,
+        price,
+        total,
+        fees,
+        executedAt: new Date(formData.executedAt).toISOString(),
+      });
+      if (result.success) {
+        setTradeResult({ success: true, message: '交易记录已更新！' });
+        handleClose();
+      } else {
+        setTradeResult({ success: false, message: result.error || '更新失败' });
+      }
+      return;
+    }
 
     // Calculate preview
     const previewTotal = total + fees;
@@ -237,6 +278,14 @@ export default function TradesPage() {
     });
     setErrors({});
     setIsModalOpen(true);
+  };
+
+  const handleDeleteTrade = (tradeId: string) => {
+    if (!window.confirm('确定删除这条交易记录吗？删除后不会自动恢复账户余额和持仓，请确认数据已核对。')) return;
+    const result = deleteTrade(tradeId);
+    setTradeResult(result.success
+      ? { success: true, message: '交易记录已删除' }
+      : { success: false, message: result.error || '删除失败' });
   };
 
   const openAddModal = (type: 'buy' | 'sell' = 'buy') => {
@@ -480,6 +529,13 @@ export default function TradesPage() {
                       >
                         修改记录
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTrade(trade.id)}
+                        className="mt-2 ml-3 text-xs font-medium text-red-500 hover:text-red-600"
+                      >
+                        删除记录
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -583,7 +639,30 @@ export default function TradesPage() {
               )}
 
               {/* Asset Type Selection */}
-              <div>
+              {formData.type === 'sell' ? (
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 mb-1.5">
+                    选择持仓 <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={accountPositions.find((position) => position.symbol === formData.symbol && position.assetType === formData.assetType)?.id || ''}
+                    onChange={(event) => selectPositionForSale(event.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-white border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">请选择要卖出的股票或基金</option>
+                    {accountPositions.map((position) => (
+                      <option key={position.id} value={position.id}>
+                        {position.name} ({position.symbol}) · 持有 {position.quantity.toLocaleString('zh-CN')}
+                      </option>
+                    ))}
+                  </select>
+                  {accountPositions.length === 0 && (
+                    <p className="mt-1 text-xs text-zinc-500">该账户暂无可卖出的股票或基金。</p>
+                  )}
+                </div>
+              ) : null}
+
+              <div className={formData.type === 'sell' ? 'hidden' : ''}>
                 <label className="block text-sm font-medium text-zinc-700 mb-1.5">
                   资产类型 <span className="text-red-500">*</span>
                 </label>
@@ -611,7 +690,7 @@ export default function TradesPage() {
               </div>
 
               {/* Symbol Search with Autocomplete */}
-              <div className="relative" ref={suggestionRef}>
+              <div className={`relative ${formData.type === 'sell' ? 'hidden' : ''}`} ref={suggestionRef}>
                 <label className="block text-sm font-medium text-zinc-700 mb-1.5">
                   代码 / 名称 <span className="text-red-500">*</span>
                 </label>
