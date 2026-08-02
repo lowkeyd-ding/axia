@@ -40,7 +40,8 @@ export function formatCurrency(
 
 export function formatNativeAmount(value: number, currency: string): string {
   const code = currency || 'CNY';
-  return `${code} ${formatNumber(value)}`;
+  const label = code === 'CNY' ? '¥' : code;
+  return `${label} ${formatNumber(value)}`;
 }
 
 export function formatDualCurrency(
