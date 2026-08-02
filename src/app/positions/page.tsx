@@ -597,6 +597,9 @@ function PositionsPageContent() {
                               ? formatPrice(position.currentPrice, position.assetType)
                               : formatDualCurrency(position.currentPrice, currency)}
                           </p>
+                          <p className="mt-0.5 text-[11px] text-zinc-400">
+                            折CNY显示优先用于账户内横向对比，避免港币/人民币显示口径不一致。
+                          </p>
                           {(() => {
                             const tierInfo = priceTierMap.get(position.id);
                             if (!tierInfo) return null;

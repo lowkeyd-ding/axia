@@ -45,7 +45,7 @@ export function formatDualCurrency(
 ): string {
   const native = formatCurrency(value, currency);
   if (!currency || currency === 'CNY' || cnyValue == null) return native;
-  return `${native} / 折合 ${formatCurrency(cnyValue, 'CNY')}`;
+  return `${formatCurrency(cnyValue, 'CNY')}（折CNY）`;
 }
 
 export function formatPercent(value: number, showSign = true): string {
