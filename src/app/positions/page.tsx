@@ -191,11 +191,12 @@ function PositionsPageContent() {
         setLastRefresh(new Date());
       }
 
-      const successfulSymbols = new Set(result.prices?.map((p) => p.symbol) || []);
-      failedCount = symbols.filter((s) => !successfulSymbols.has(s)).length;
+      const normalizeSymbol = (value: string) => value.toUpperCase().replace(/\.OF$/, '');
+      const successfulSymbols = new Set(result.prices?.map((p) => normalizeSymbol(p.symbol)) || []);
+      failedCount = symbols.filter((s) => !successfulSymbols.has(normalizeSymbol(s))).length;
       const failureMap = new Map<string, string>();
       (result.errorDetails || []).forEach((item) => {
-        failureMap.set(item.symbol.toUpperCase(), item.reason);
+        failureMap.set(normalizeSymbol(item.symbol), item.reason);
       });
       const fallbackFailures = (result.errors || [])
         .map((message) => {
@@ -203,13 +204,14 @@ function PositionsPageContent() {
           return { symbol: symbol.trim(), reason: rest.join(':').trim() || '未知原因' };
         });
       fallbackFailures.forEach((item) => {
-        if (!failureMap.has(item.symbol.toUpperCase())) {
-          failureMap.set(item.symbol.toUpperCase(), item.reason);
+        const key = normalizeSymbol(item.symbol);
+        if (!failureMap.has(key)) {
+          failureMap.set(key, item.reason);
         }
       });
       const failedBySymbol = symbols
-        .filter((s) => !successfulSymbols.has(s))
-        .map((symbol) => `${symbol}: ${failureMap.get(symbol) || '未命中任何可用来源'}`);
+        .filter((s) => !successfulSymbols.has(normalizeSymbol(s)))
+        .map((symbol) => `${symbol}: ${failureMap.get(normalizeSymbol(symbol)) || '未命中任何可用来源'}`);
       if (successCount > 0) {
         setRefreshStatus(
           failedCount > 0
