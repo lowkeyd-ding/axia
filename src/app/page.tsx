@@ -352,9 +352,9 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-col min-h-screen bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.08),transparent_30%),linear-gradient(to_bottom,#fafafa,#f8fafc)] text-zinc-900">
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 space-y-6">
-        {/* 总览区 */}
-        <div className="relative overflow-hidden bg-white/80 backdrop-blur border border-white/60 rounded-[28px] p-6 shadow-[0_12px_40px_rgba(24,24,27,0.06)]">
+      <main className="flex flex-col flex-1 max-w-5xl mx-auto w-full px-4 py-6 gap-6">
+        {/* 第一部分：总览区 */}
+        <div className="order-1 relative overflow-hidden bg-white/80 backdrop-blur border border-white/60 rounded-[28px] p-6 shadow-[0_12px_40px_rgba(24,24,27,0.06)]">
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-200 to-transparent" />
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-200 to-transparent" />
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative">
@@ -387,40 +387,16 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-sm font-medium text-zinc-800">现金流调整后表现</p>
-              <p className="mt-1 text-xs text-zinc-500">尽可能剔除外部入金和取现；至少需要两次不同日期的快照。</p>
-            </div>
-            {adjustedPerformance?.cumulativeReturnPercent != null ? (
-              <p className={`text-xl font-semibold whitespace-nowrap ${getPnLColor(adjustedPerformance.cumulativeReturnPercent)}`}>
-                {formatPercent(adjustedPerformance.cumulativeReturnPercent)}
-              </p>
-            ) : (
-              <Link href="/snapshots?new=1" className="text-sm font-medium text-blue-600 whitespace-nowrap hover:text-blue-700">数据不足，记录快照</Link>
-            )}
-          </div>
-          <p className="mt-2 text-[11px] text-zinc-500">汇率口径：港币账户按前一交易日中行港币卖出价；港股通按结算汇率。</p>
-
           <div className="mt-5 flex flex-wrap gap-2">
             {refreshablePositions.length > 0 && (
-              <button
-                onClick={() => openRoute('/positions?new=1')}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-zinc-100 text-zinc-700 text-sm font-medium hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
+              <button onClick={() => openRoute('/positions?new=1')} className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-zinc-100 text-zinc-700 text-sm font-medium hover:bg-zinc-200">
                 刷新行情
               </button>
             )}
-            <button
-              onClick={() => openRoute('/trades?new=1')}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-zinc-100 text-zinc-700 text-sm font-medium hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
+            <button onClick={() => openRoute('/trades?new=1')} className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-zinc-100 text-zinc-700 text-sm font-medium hover:bg-zinc-200">
               记录交易
             </button>
-            <button
-              onClick={() => openRoute('/snapshots?new=1')}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
+            <button onClick={() => openRoute('/snapshots?new=1')} className="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-blue-50 text-blue-600 text-sm font-medium hover:bg-blue-100">
               记录快照
             </button>
           </div>
@@ -452,23 +428,12 @@ export default function HomePage() {
             </div>
           )}
 
-          {needAttention.length > 0 && (
-            <div className="mt-5 pt-5 border-t border-zinc-100">
-              <h2 className="text-sm font-medium text-zinc-900 mb-3">需要关注</h2>
-              <div className="space-y-2">
-                {needAttention.map((item) => (
-                  <div key={item} className="flex items-start gap-2 rounded-2xl bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
-                    <span className="mt-0.5 h-2 w-2 rounded-full bg-blue-500 shrink-0" />
-                    <span>{item}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+
         </div>
 
+        {/* 第三部分：组合检查 */}
         {activeTargetAllocation && allocationDeviations.length > 0 && (
-          <section className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
+          <section className="order-3 bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
             <div className="flex items-start justify-between gap-4 mb-5">
               <div>
                 <p className="text-xs font-medium uppercase tracking-[0.18em] text-blue-600">组合检查</p>
@@ -498,14 +463,14 @@ export default function HomePage() {
         )}
 
         {!activeTargetAllocation && (
-          <button onClick={openAllocationEditor} className="w-full rounded-2xl border border-dashed border-blue-200 bg-blue-50/60 p-5 text-left hover:bg-blue-50 transition-colors">
+          <button onClick={openAllocationEditor} className="order-3 w-full rounded-2xl border border-dashed border-blue-200 bg-blue-50/60 p-5 text-left hover:bg-blue-50 transition-colors">
             <p className="text-sm font-semibold text-zinc-900">设置目标配置</p>
             <p className="mt-1 text-xs text-zinc-500">为股票、基金、现金和银行理财设置目标比例，帮助发现组合偏离。</p>
           </button>
         )}
 
-        {/* 资产配置饼图 & 目标对比 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* 第四部分：资产配置和资产趋势 */}
+        <div className="order-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* 饼图 */}
           <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
             <h2 className="text-base font-medium text-zinc-900 mb-2">资产配置</h2>
@@ -684,8 +649,8 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* 账户汇总卡片 */}
-        <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
+        {/* 第二部分：账户汇总 */}
+        <div className="order-2 bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-medium text-zinc-900">账户汇总</h2>
             <Link
@@ -747,8 +712,24 @@ export default function HomePage() {
           )}
         </div>
 
+        {/* 第五部分：现金流调整与快捷操作 */}
+        <section className="order-5 bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
+          <div className="rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-medium text-zinc-800">现金流调整后表现</p>
+              <p className="mt-1 text-xs text-zinc-500">尽可能剔除外部入金和取现；至少需要两次不同日期的快照。</p>
+            </div>
+            {adjustedPerformance?.cumulativeReturnPercent != null ? (
+              <p className={`text-xl font-semibold whitespace-nowrap ${getPnLColor(adjustedPerformance.cumulativeReturnPercent)}`}>{formatPercent(adjustedPerformance.cumulativeReturnPercent)}</p>
+            ) : (
+              <Link href="/snapshots?new=1" className="text-sm font-medium text-blue-600 whitespace-nowrap hover:text-blue-700">数据不足，记录快照</Link>
+            )}
+          </div>
+          <p className="mt-2 text-[11px] text-zinc-500">汇率口径：港币账户按前一交易日中行港币卖出价；港股通按结算汇率。</p>
+        </section>
+
         {/* 快捷入口 */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="order-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Link
             href="/accounts"
             className="flex flex-col items-center gap-2 bg-white border border-zinc-200 rounded-xl p-4 hover:border-zinc-300 hover:bg-zinc-50 transition-colors shadow-sm"
