@@ -705,15 +705,15 @@ export default function AccountsPage() {
                         </span>
                       </div>
                     </div>
-                    <div className="w-[520px] flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
-                      <div className="flex flex-col items-end text-right">
-                        <p className="text-lg font-semibold text-zinc-900">
+                    <div className="w-full max-w-[520px] flex items-center justify-end gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+                      <div className="min-w-0 flex-1 flex flex-col items-end text-right">
+                        <p className="w-full truncate text-lg font-semibold text-zinc-900">
                           {formatNativeAmount(totalAssetsNative, account.currency)}
                         </p>
-                        <p className="mt-0.5 text-[11px] text-zinc-400">
+                        <p className="w-full truncate mt-0.5 text-[11px] text-zinc-400">
                           折算人民币：{formatCurrency(totalAssets, 'CNY')}
                         </p>
-                        <div className="flex items-center justify-end gap-2 text-xs text-zinc-500">
+                        <div className="w-full flex items-center justify-end gap-2 text-xs text-zinc-500 whitespace-nowrap">
                           <span>持仓 {formatNativeAmount(valueNative, account.currency)}</span>
                           <span className="text-zinc-300">|</span>
                           <span>余额 {formatNativeAmount(balanceNative, account.currency)}</span>

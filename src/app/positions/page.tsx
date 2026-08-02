@@ -589,8 +589,8 @@ function PositionsPageContent() {
                       <p className="text-sm text-zinc-500">{getAccountName(position.accountId)}</p>
                     </Link>
 
-                    <div className="w-[520px] flex items-center gap-3">
-                      <div className="flex flex-col items-end text-right">
+                    <div className="w-full max-w-[520px] flex items-center justify-end gap-3">
+                      <div className="min-w-0 flex-1 flex flex-col items-end text-right">
                         <div className="flex items-center justify-end gap-1.5 mb-0.5">
                           <p className="text-base font-medium text-zinc-900">
                             {position.assetType === 'fund' 
@@ -609,10 +609,10 @@ function PositionsPageContent() {
                             );
                           })()}
                         </div>
-                        <p className="text-[11px] text-zinc-400 leading-5">
+                        <p className="w-full truncate text-[11px] text-zinc-400 leading-5">
                           数量 {position.quantity.toLocaleString('zh-CN')} · 总额 {formatNativeAmount(position.currentPrice * position.quantity, currency)}
                         </p>
-                        <div className={`flex flex-col items-end gap-0.5 text-sm ${pnlColor}`}>
+                        <div className={`w-full flex flex-col items-end gap-0.5 text-sm ${pnlColor}`}>
                           <span>
                             {pnlAmount >= 0 ? '+' : '-'}{formatDualCurrency(Math.abs(pnlAmount), currency)}
                           </span>
