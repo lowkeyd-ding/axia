@@ -33,7 +33,7 @@ function isWeekend(date = new Date()): boolean {
 
 // Compute P&L for a single position (returns flat numbers, no FX)
 function computePositionPnL(
-  pos: { currentPrice: number; dailyBasePrice?: number; monthlyBasePrice?: number; yearlyBasePrice?: number; quantity: number; avgCost: number }
+  pos: { currentPrice: number; symbol?: string; dailyBasePrice?: number; monthlyBasePrice?: number; yearlyBasePrice?: number; quantity: number; avgCost: number }
 ): { daily: number; monthly: number; yearly: number; dailyPercent: number; monthlyPercent: number; yearlyPercent: number } {
   const weekend = isWeekend();
   const daily = weekend ? 0 : pos.dailyBasePrice != null
@@ -152,7 +152,7 @@ export function useAccountPnLStats(accountId: string): PnLStats {
 
 /** Pure P&L for a single position (no FX) */
 export function computePositionPnLRaw(
-  pos: { currentPrice: number; avgCost: number; quantity: number; accountId: string; currency?: string;
+  pos: { currentPrice: number; avgCost: number; quantity: number; accountId: string; symbol?: string; currency?: string;
     dailyBasePrice?: number; monthlyBasePrice?: number; yearlyBasePrice?: number },
   accounts: { id: string; currency: string }[],
   fxRates: FxRates
