@@ -26,11 +26,17 @@ export interface PnLStats {
   yearly: PeriodPnL;
 }
 
+function isWeekend(date = new Date()): boolean {
+  const day = date.getDay();
+  return day === 0 || day === 6;
+}
+
 // Compute P&L for a single position (returns flat numbers, no FX)
 function computePositionPnL(
   pos: { currentPrice: number; dailyBasePrice?: number; monthlyBasePrice?: number; yearlyBasePrice?: number; quantity: number; avgCost: number }
 ): { daily: number; monthly: number; yearly: number; dailyPercent: number; monthlyPercent: number; yearlyPercent: number } {
-  const daily = pos.dailyBasePrice != null
+  const weekend = isWeekend();
+  const daily = weekend ? 0 : pos.dailyBasePrice != null
     ? (pos.currentPrice - pos.dailyBasePrice) * pos.quantity
     : 0;
   const monthly = pos.monthlyBasePrice != null
@@ -41,7 +47,7 @@ function computePositionPnL(
     : 0;
 
   // Percent vs baseline price
-  const dailyPercent = pos.dailyBasePrice ? ((pos.currentPrice - pos.dailyBasePrice) / pos.dailyBasePrice) * 100 : 0;
+  const dailyPercent = weekend ? 0 : pos.dailyBasePrice ? ((pos.currentPrice - pos.dailyBasePrice) / pos.dailyBasePrice) * 100 : 0;
   const monthlyPercent = pos.monthlyBasePrice ? ((pos.currentPrice - pos.monthlyBasePrice) / pos.monthlyBasePrice) * 100 : 0;
   const yearlyPercent = pos.yearlyBasePrice ? ((pos.currentPrice - pos.yearlyBasePrice) / pos.yearlyBasePrice) * 100 : 0;
 
@@ -57,6 +63,7 @@ function aggregatePnL(
 ) {
   let dailyCNY = 0, monthlyCNY = 0, yearlyCNY = 0;
   let dailyBase = 0, monthlyBase = 0, yearlyBase = 0;
+  const weekend = isWeekend();
 
   for (const pos of positions) {
     const account = accounts.find(a => a.id === pos.accountId);
@@ -70,9 +77,11 @@ function aggregatePnL(
     yearlyBase += curValue;
 
     // Baseline values in CNY
-    const dailyBaseVal = pos.dailyBasePrice != null
-      ? convertToAccountCNY(pos.dailyBasePrice * pos.quantity, posCcy, 'CNY', fxRates)
-      : curValue;
+    const dailyBaseVal = weekend
+      ? curValue
+      : pos.dailyBasePrice != null
+        ? convertToAccountCNY(pos.dailyBasePrice * pos.quantity, posCcy, 'CNY', fxRates)
+        : curValue;
     const monthlyBaseVal = pos.monthlyBasePrice != null
       ? convertToAccountCNY(pos.monthlyBasePrice * pos.quantity, posCcy, 'CNY', fxRates)
       : curValue;
@@ -92,7 +101,7 @@ function aggregatePnL(
   };
 
   return {
-    daily: calcChange(dailyBase, dailyCNY),
+    daily: weekend ? { change: 0, changePercent: 0 } : calcChange(dailyBase, dailyCNY),
     monthly: calcChange(monthlyBase, monthlyCNY),
     yearly: calcChange(yearlyBase, yearlyCNY),
   };
