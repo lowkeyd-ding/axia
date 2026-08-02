@@ -711,16 +711,12 @@ export default function AccountsPage() {
                           {formatNativeAmount(totalAssetsNative, account.currency)}
                         </p>
                         <p className="mt-0.5 text-[11px] text-zinc-400">
-                          总额已按人民币折算：{formatCurrency(totalAssets, 'CNY')}
+                          折算人民币：{formatCurrency(totalAssets, 'CNY')}
                         </p>
-                        <div className="flex items-center justify-end gap-2 text-xs">
-                          <span className="text-zinc-400">
-                            持仓: {formatNativeAmount(valueNative, account.currency)}
-                          </span>
+                        <div className="flex items-center justify-end gap-2 text-xs text-zinc-500">
+                          <span>持仓 {formatNativeAmount(valueNative, account.currency)}</span>
                           <span className="text-zinc-300">|</span>
-                          <span className="text-blue-500/80">
-                            余额: {formatNativeAmount(balanceNative, account.currency)}
-                          </span>
+                          <span>余额 {formatNativeAmount(balanceNative, account.currency)}</span>
                         </div>
                         <div className="mt-1 flex items-center justify-end gap-3 text-xs">
                           {(() => {
