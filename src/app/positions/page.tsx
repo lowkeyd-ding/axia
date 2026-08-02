@@ -10,6 +10,7 @@ import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
 import type { Position, Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
 import { formatCurrency, formatDualCurrency, formatNativeAmount, formatPercent } from '@/utils/format';
+import { inferCurrencyFromSymbol } from '@/lib/fx';
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
 import { usePnLStats, computePositionPnLRaw } from '@/lib/hooks/usePnLStats';
 import { useFxRates } from '@/lib/hooks/useFxRates';
@@ -566,7 +567,7 @@ function PositionsPageContent() {
           <div className="space-y-2">
             {filteredPositions.map((position) => {
               const { pnlAmount, pnlPercent, currentValue, costBasis } = calculatePnL(position);
-              const currency = getAccountCurrency(position.accountId);
+              const currency = position.currency || inferCurrencyFromSymbol(position.symbol);
               const assetConfig = ASSET_TYPE_CONFIG[position.assetType];
               const pnlColor = getPnLColor(pnlAmount);
               const isRefreshing = refreshingSymbols.has(position.symbol);

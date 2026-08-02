@@ -40,7 +40,7 @@ export function formatCurrency(
 
 export function formatNativeAmount(value: number, currency: string): string {
   const code = currency || 'CNY';
-  const label = code === 'CNY' ? '¥' : code;
+  const label = code === 'CNY' ? '¥' : code === 'HKD' ? 'HKD' : code === 'USD' ? '$' : code;
   return `${label} ${formatNumber(value)}`;
 }
 
