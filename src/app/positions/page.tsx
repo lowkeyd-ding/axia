@@ -589,7 +589,7 @@ function PositionsPageContent() {
                       <p className="text-sm text-zinc-500">{getAccountName(position.accountId)}</p>
                     </Link>
 
-                    <div className="w-[420px] flex items-center gap-3">
+                    <div className="w-[520px] flex items-center gap-3">
                       <div className="text-right">
                         <div className="flex items-center justify-end gap-1.5 mb-0.5">
                           <p className="text-base font-medium text-zinc-900">
