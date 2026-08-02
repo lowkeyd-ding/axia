@@ -15,6 +15,19 @@ export interface Account {
 export type AssetType = 'stock' | 'fund' | 'bank_wealth_management' | 'bank_cash';
 
 // Position types
+export interface PriceSnapshot {
+  id: string;
+  symbol: string;
+  assetType: 'stock' | 'fund';
+  date: string;
+  price: number;
+  currency: string;
+  source: string;
+  dataTier?: 'realtime' | 'estimate' | 'confirmed' | 'cached' | 'stale';
+  createdAt: string;
+}
+
+// Position types
 export interface Position {
   id: string;
   accountId: string;

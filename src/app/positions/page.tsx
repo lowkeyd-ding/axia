@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef, useMemo, Suspense } from 'react';
-import { formatBusinessDateTime } from '@/lib/businessDate';
+import { formatBusinessDateTime, getBusinessDate } from '@/lib/businessDate';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
@@ -52,7 +52,7 @@ const initialFormData: FormData = {
 
 function PositionsPageContent() {
   const router = useRouter();
-  const { positions, accounts, addPosition, updatePosition, deletePosition } = useAppStore();
+  const { positions, accounts, addPosition, updatePosition, deletePosition, addPriceSnapshot } = useAppStore();
   const pnlStats = usePnLStats();
   const searchParams = useSearchParams();
   const filterAccountId = searchParams.get('account');
@@ -176,6 +176,7 @@ function PositionsPageContent() {
           );
           matchingPositions.forEach((position) => {
             updatePosition(position.id, { currentPrice: priceData.price });
+            addPriceSnapshot({ symbol: position.symbol, assetType: position.assetType as 'stock' | 'fund', date: getBusinessDate(), price: priceData.price, currency: position.currency || inferCurrencyFromSymbol(position.symbol), source: priceData.source, dataTier: priceData.dataTier });
             const cacheKey = position.id;
             setPriceTierMap((current) => {
               const next = new Map(current);
@@ -248,6 +249,7 @@ function PositionsPageContent() {
 
       if (result) {
         updatePosition(position.id, { currentPrice: result.price });
+        addPriceSnapshot({ symbol: position.symbol, assetType: position.assetType as 'stock' | 'fund', date: getBusinessDate(), price: result.price, currency: position.currency || inferCurrencyFromSymbol(position.symbol), source: result.source, dataTier: result.dataTier });
         setPriceTierMap((current) => {
           const next = new Map(current);
           next.set(position.id, {

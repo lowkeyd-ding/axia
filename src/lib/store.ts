@@ -8,6 +8,7 @@ import {
   Trade,
   Transfer,
   TargetAllocation,
+  PriceSnapshot,
   ActionResult,
   TradeExecutionResult,
   Lot,
@@ -45,7 +46,7 @@ async function loadFromCloudData(state: Partial<AppState>) {
       const payload = cloudData.data;
       useAppStore.setState({
         accounts: payload.accounts || [], positions: payload.positions || [], snapshots: payload.snapshots || [], trades: payload.trades || [],
-        transfers: payload.transfers || [], targetAllocations: payload.targetAllocations || [], lots: payload.lots || [],
+        transfers: payload.transfers || [], targetAllocations: payload.targetAllocations || [], lots: payload.lots || [], priceSnapshots: payload.priceSnapshots || [],
         _lastSyncedAt: new Date().toISOString(), _lastCloudUpdatedAt: cloudData.updatedAt,
         _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null,
       });
@@ -172,6 +173,7 @@ async function scheduleCloudSync() {
       transfers: state.transfers,
       targetAllocations: state.targetAllocations,
       lots: state.lots,
+      priceSnapshots: state.priceSnapshots,
     };
     const success = await cloudSyncToCloud(data);
     if (success) {
@@ -189,6 +191,7 @@ interface AppState {
   transfers: Transfer[];
   targetAllocations: TargetAllocation[];
   lots: Lot[];
+  priceSnapshots: PriceSnapshot[];
 
   // Sync state
   _hasLoadedFromCloud: boolean;
@@ -234,6 +237,7 @@ interface AppState {
   // Lot actions (per-buy-point P&L tracking)
   getLotsByPosition: (positionId: string) => Lot[];
   addLot: (lot: Omit<Lot, 'id' | 'createdAt'>) => Lot;
+  addPriceSnapshot: (snapshot: Omit<PriceSnapshot, 'id' | 'createdAt'>) => PriceSnapshot;
 
   // Bulk operations
   setAccounts: (accounts: Account[]) => void;
@@ -269,6 +273,7 @@ export const useAppStore = create<AppState>()(
   transfers: [],
   targetAllocations: [],
   lots: [],
+  priceSnapshots: [],
   _hasLoadedFromCloud: false,
   _lastSyncedAt: null,
   _lastCloudUpdatedAt: null,
@@ -282,7 +287,7 @@ export const useAppStore = create<AppState>()(
     const state = get();
     if (choice === 'cloud' && state._pendingCloudData) {
       const d = state._pendingCloudData;
-      set({ accounts: d.accounts || [], positions: d.positions || [], snapshots: d.snapshots || [], trades: d.trades || [], transfers: d.transfers || [], targetAllocations: d.targetAllocations || [], lots: d.lots || [], _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null, _lastCloudUpdatedAt: state._pendingCloudUpdatedAt, _pendingCloudData: null, _pendingCloudUpdatedAt: null });
+      set({ accounts: d.accounts || [], positions: d.positions || [], snapshots: d.snapshots || [], trades: d.trades || [], transfers: d.transfers || [], targetAllocations: d.targetAllocations || [], lots: d.lots || [], priceSnapshots: d.priceSnapshots || [], _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null, _lastCloudUpdatedAt: state._pendingCloudUpdatedAt, _pendingCloudData: null, _pendingCloudUpdatedAt: null });
       return true;
     }
     if (choice === 'local') {
@@ -1044,6 +1049,18 @@ export const useAppStore = create<AppState>()(
     return newLot;
   },
 
+  addPriceSnapshot: (snapshotData) => {
+    const newSnapshot: PriceSnapshot = { ...snapshotData, id: uuidv4(), createdAt: getNow() };
+    set((state) => ({
+      priceSnapshots: [
+        ...state.priceSnapshots.filter((item) => !(item.symbol === newSnapshot.symbol && item.date === newSnapshot.date)),
+        newSnapshot,
+      ],
+    }));
+    scheduleCloudSync();
+    return newSnapshot;
+  },
+
   // Bulk operations
   setAccounts: (accounts) => {
     set({ accounts });
@@ -1092,6 +1109,7 @@ export const useAppStore = create<AppState>()(
       transfers: [],
       targetAllocations: [],
       lots: [],
+      priceSnapshots: [],
       _hasLoadedFromCloud: false,
       _lastSyncedAt: null,
     });

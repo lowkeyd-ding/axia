@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
-import type { Account, Position, Snapshot, Trade, Transfer, TargetAllocation, Lot } from '@/types';
+import type { Account, Position, Snapshot, Trade, Transfer, TargetAllocation, Lot, PriceSnapshot } from '@/types';
 
 export interface CloudSyncData {
   accounts: Account[];
@@ -9,6 +9,7 @@ export interface CloudSyncData {
   transfers: Transfer[];
   targetAllocations: TargetAllocation[];
   lots: Lot[];
+  priceSnapshots?: PriceSnapshot[];
 }
 
 export interface CloudSyncRecord {
