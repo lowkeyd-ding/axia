@@ -597,9 +597,6 @@ function PositionsPageContent() {
                               ? formatPrice(position.currentPrice, position.assetType)
                               : formatDualCurrency(position.currentPrice, currency)}
                           </p>
-                          <p className="mt-0.5 text-[11px] text-zinc-400">
-                            折算人民币展示
-                          </p>
                           {(() => {
                             const tierInfo = priceTierMap.get(position.id);
                             if (!tierInfo) return null;
@@ -612,6 +609,9 @@ function PositionsPageContent() {
                             );
                           })()}
                         </div>
+                        <p className="text-[11px] text-zinc-400 leading-5">
+                          数量 {position.quantity.toLocaleString('zh-CN')} · 总额 {formatDualCurrency(position.currentPrice * position.quantity, currency)}
+                        </p>
                         <div className={`flex flex-col items-end gap-0.5 text-sm ${pnlColor}`}>
                           <span>
                             {pnlAmount >= 0 ? '+' : '-'}{formatDualCurrency(Math.abs(pnlAmount), currency)}
