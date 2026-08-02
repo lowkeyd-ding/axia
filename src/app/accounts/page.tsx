@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 import { useFxRates } from '@/lib/hooks/useFxRates';
 import { useAccountPnLStats, computeAccountPnLRaw, type PnLStats } from '@/lib/hooks/usePnLStats';
 import { convertToAccountCNY, getEffectiveCurrency, inferCurrencyFromSymbol } from '@/lib/fx';
-import { formatCurrency, formatDualCurrency } from '@/utils/format';
+import { formatCurrency, formatDualCurrency, formatNativeAmount } from '@/utils/format';
 import type { FxRates } from '@/lib/fx';
 
 const ACCOUNT_TYPES = [
@@ -708,18 +708,18 @@ export default function AccountsPage() {
                     <div className="flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
                       <div className="text-right">
                         <p className="text-lg font-semibold text-zinc-900">
-                          {formatDualCurrency(totalAssetsNative, account.currency, totalAssets)}
+                          {formatNativeAmount(totalAssetsNative, account.currency)}
                         </p>
                         <p className="mt-0.5 text-[11px] text-zinc-400">
-                          折算人民币展示
+                          总额已按人民币折算：{formatCurrency(totalAssets, 'CNY')}
                         </p>
                         <div className="flex items-center justify-end gap-2 text-xs">
                           <span className="text-zinc-400">
-                            持仓: {formatDualCurrency(valueNative, account.currency, value)}
+                            持仓: {formatNativeAmount(valueNative, account.currency)}
                           </span>
                           <span className="text-zinc-300">|</span>
                           <span className="text-blue-500/80">
-                            余额: {formatDualCurrency(balanceNative, account.currency, balanceCNY)}
+                            余额: {formatNativeAmount(balanceNative, account.currency)}
                           </span>
                         </div>
                         <div className="mt-1 flex items-center justify-end gap-3 text-xs">

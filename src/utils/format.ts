@@ -38,14 +38,19 @@ export function formatCurrency(
   return formatted;
 }
 
+export function formatNativeAmount(value: number, currency: string): string {
+  const code = currency || 'CNY';
+  return `${code} ${formatNumber(value)}`;
+}
+
 export function formatDualCurrency(
   value: number,
   currency: string,
   cnyValue?: number
 ): string {
-  if (!currency || cnyValue == null) return formatCurrency(value, currency);
+  if (!currency || cnyValue == null) return formatNativeAmount(value, currency);
   if (currency === 'CNY') return formatCurrency(cnyValue, 'CNY');
-  return `${formatCurrency(cnyValue, 'CNY')}（原币 ${formatNumber(value)} ${currency}）`;
+  return `${formatNativeAmount(value, currency)} / 折算人民币 ${formatCurrency(cnyValue, 'CNY')}`;
 }
 
 export function formatPercent(value: number, showSign = true): string {

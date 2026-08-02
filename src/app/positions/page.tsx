@@ -9,7 +9,7 @@ import { refreshPricesByType, getPrice, type PriceData } from '@/lib/priceApi';
 import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
 import type { Position, Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
-import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
+import { formatCurrency, formatDualCurrency, formatNativeAmount, formatPercent } from '@/utils/format';
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
 import { usePnLStats, computePositionPnLRaw } from '@/lib/hooks/usePnLStats';
 import { useFxRates } from '@/lib/hooks/useFxRates';
@@ -595,7 +595,7 @@ function PositionsPageContent() {
                           <p className="text-base font-medium text-zinc-900">
                             {position.assetType === 'fund' 
                               ? formatPrice(position.currentPrice, position.assetType)
-                              : formatDualCurrency(position.currentPrice, currency)}
+                              : formatNativeAmount(position.currentPrice, currency)}
                           </p>
                           {(() => {
                             const tierInfo = priceTierMap.get(position.id);
@@ -610,7 +610,7 @@ function PositionsPageContent() {
                           })()}
                         </div>
                         <p className="text-[11px] text-zinc-400 leading-5">
-                          数量 {position.quantity.toLocaleString('zh-CN')} · 总额 {formatDualCurrency(position.currentPrice * position.quantity, currency)}
+                          数量 {position.quantity.toLocaleString('zh-CN')} · 总额 {formatNativeAmount(position.currentPrice * position.quantity, currency)}
                         </p>
                         <div className={`flex flex-col items-end gap-0.5 text-sm ${pnlColor}`}>
                           <span>
