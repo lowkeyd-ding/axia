@@ -400,7 +400,7 @@ export default function HomePage() {
               <Link href="/snapshots?new=1" className="text-sm font-medium text-blue-600 whitespace-nowrap hover:text-blue-700">数据不足，记录快照</Link>
             )}
           </div>
-          <p className="mt-2 text-[11px] text-zinc-500">汇率口径：港币账户按前一交易日中国银行港币现汇卖出价近似估值；港股通按港股通结算汇率。</p>
+          <p className="mt-2 text-[11px] text-zinc-500">汇率口径：港币账户按前一交易日中行港币卖出价；港股通按结算汇率。</p>
 
           <div className="mt-5 flex flex-wrap gap-2">
             {refreshablePositions.length > 0 && (

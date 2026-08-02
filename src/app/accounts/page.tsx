@@ -711,7 +711,7 @@ export default function AccountsPage() {
                           {formatDualCurrency(totalAssetsNative, account.currency, totalAssets)}
                         </p>
                         <p className="mt-0.5 text-[11px] text-zinc-400">
-                          折CNY显示：统一按人民币口径对比持仓与余额，减少账户币种差异造成的视觉不一致。
+                          折CNY显示：统一按人民币口径展示。
                         </p>
                         <div className="flex items-center justify-end gap-2 text-xs">
                           <span className="text-zinc-400">
