@@ -213,8 +213,14 @@ export async function convertToAccountCNYAsync(
  */
 export function getEffectiveCurrency(
   posCurrency: string | undefined,
-  acctCurrency: string
+  acctCurrency: string,
+  symbol?: string
 ): string {
+  // Symbol conventions correct legacy records that were saved with the account currency.
+  if (symbol) {
+    const inferred = inferCurrencyFromSymbol(symbol);
+    if (inferred !== 'CNY' || posCurrency == null) return inferred;
+  }
   return posCurrency || acctCurrency;
 }
 

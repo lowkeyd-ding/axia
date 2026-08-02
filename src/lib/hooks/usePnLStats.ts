@@ -68,7 +68,7 @@ function aggregatePnL(
   for (const pos of positions) {
     const account = accounts.find(a => a.id === pos.accountId);
     const acctCcy = account?.currency || 'CNY';
-    const posCcy = getEffectiveCurrency(pos.currency, acctCcy);
+    const posCcy = getEffectiveCurrency(pos.currency, acctCcy, (pos as { symbol?: string }).symbol);
 
     // Current total value in CNY
     const curValue = convertToAccountCNY(pos.currentPrice * pos.quantity, posCcy, 'CNY', fxRates);
@@ -159,7 +159,7 @@ export function computePositionPnLRaw(
 ): PnLStats {
   const account = accounts.find(a => a.id === pos.accountId);
   const acctCcy = account?.currency || 'CNY';
-  const posCcy = getEffectiveCurrency(pos.currency, acctCcy);
+  const posCcy = getEffectiveCurrency(pos.currency, acctCcy, (pos as { symbol?: string }).symbol);
 
   const daily = pos.dailyBasePrice != null
     ? convertToAccountCNY((pos.currentPrice - pos.dailyBasePrice) * pos.quantity, posCcy, 'CNY', fxRates)
