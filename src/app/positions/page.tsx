@@ -51,7 +51,7 @@ const initialFormData: FormData = {
 
 function PositionsPageContent() {
   const router = useRouter();
-  const { positions, accounts, addPosition, updatePosition } = useAppStore();
+  const { positions, accounts, addPosition, updatePosition, deletePosition } = useAppStore();
   const pnlStats = usePnLStats();
   const searchParams = useSearchParams();
   const filterAccountId = searchParams.get('account');
@@ -355,6 +355,15 @@ function PositionsPageContent() {
     });
     setErrors({});
     setIsModalOpen(true);
+  };
+
+  const handleDelete = () => {
+    if (!editingPosition) return;
+    if (!window.confirm(`确定删除持仓“${editingPosition.name}”吗？删除后不可恢复。`)) return;
+    const result = deletePosition(editingPosition.id);
+    if (result.success) {
+      handleClose();
+    }
   };
 
   const handleSubmit = () => {
@@ -1003,6 +1012,14 @@ function PositionsPageContent() {
             </div>
 
             <div className="sticky bottom-0 z-10 flex gap-3 px-5 py-4 bg-white border-t border-zinc-200">
+              {editingPosition && (
+                <button
+                  onClick={handleDelete}
+                  className="px-4 py-2.5 border border-red-200 rounded-lg text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  删除持仓
+                </button>
+              )}
               <button
                 onClick={handleClose}
                 className="flex-1 px-4 py-2.5 border border-zinc-300 rounded-lg text-zinc-700 hover:bg-zinc-50 transition-colors"
