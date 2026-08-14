@@ -33,7 +33,7 @@ export interface ReturnPosition {
 }
 
 export interface ReturnResult {
-  valueCNY: number;
+  currentValueCNY: number;
   baseValueCNY: number;
   changeCNY: number;
   changePercent: number | null;
@@ -50,7 +50,7 @@ function marketCurrency(position: ReturnPosition): string {
 
 function calculate(position: ReturnPosition, baseline?: LocalPriceBaseline, quantity?: number, fxRates?: FxRates): ReturnResult {
   if (!baseline || !quantity || baseline.price <= 0) {
-    return { valueCNY: 0, baseValueCNY: 0, changeCNY: 0, changePercent: null, missingBaseline: true };
+    return { currentValueCNY: 0, baseValueCNY: 0, changeCNY: 0, changePercent: null, missingBaseline: true };
   }
   const currency = marketCurrency(position);
   const rates = fxRates || fallbackRates();
@@ -58,7 +58,7 @@ function calculate(position: ReturnPosition, baseline?: LocalPriceBaseline, quan
   const baseValue = convertToAccountCNY(baseline.price * quantity, currency, 'CNY', rates);
   const change = currentValue - baseValue;
   return {
-    valueCNY: currentValue,
+    currentValueCNY: currentValue,
     baseValueCNY: baseValue,
     changeCNY: change,
     changePercent: baseValue > 0 ? (change / baseValue) * 100 : null,

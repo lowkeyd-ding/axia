@@ -142,6 +142,9 @@ function calculatePositionReturns(
 ): PnLStats {
   const account = accounts.find((item) => item.id === position.accountId);
   const symbol = position.symbol || '';
+  const latestTradeDate = trades
+    .filter((trade) => trade.accountId === position.accountId && trade.symbol.toUpperCase() === symbol.toUpperCase())
+    .sort((a, b) => b.executedAt.localeCompare(a.executedAt))[0]?.executedAt.slice(0, 10);
   const previous = latestSnapshotBefore(symbol, getBusinessDate(), snapshots);
   const previousQuantity = previous
     ? quantityAtDate({ accountId: position.accountId, symbol, assetType: position.assetType || 'stock', quantity: position.quantity, buyDate: position.buyDate }, trades, previous.date)
@@ -154,10 +157,12 @@ function calculatePositionReturns(
   const yearQuantity = yearBaseline
     ? quantityAtDate({ accountId: position.accountId, symbol, assetType: position.assetType || 'stock', quantity: position.quantity, buyDate: position.buyDate }, trades, yearBaseline.date)
     : undefined;
-  const returnPosition = toReturnPosition(position, account, previous ? { date: previous.date, price: previous.price, currency: previous.currency } : undefined, previousQuantity, monthBaseline, monthQuantity, yearBaseline, yearQuantity);
+  const baselinePoint = previous ? { date: previous.date, price: previous.price, currency: previous.currency } : undefined;
+  const returnPosition = toReturnPosition(position, account, baselinePoint, previousQuantity, monthBaseline, monthQuantity, yearBaseline, yearQuantity);
+  const stalePosition = position.buyDate && latestTradeDate && position.buyDate.slice(0, 10) < latestTradeDate && position.quantity <= 0;
 
   return {
-    daily: isWeekend() ? { change: 0, changePercent: 0 } : resultToPeriod(calculateDailyReturn(returnPosition, fxRates)),
+    daily: isWeekend() || stalePosition ? { change: 0, changePercent: 0 } : resultToPeriod(calculateDailyReturn(returnPosition, fxRates)),
     monthly: resultToPeriod(calculateMonthlyReturn(returnPosition, fxRates)),
     yearly: resultToPeriod(calculateYearlyReturn(returnPosition, fxRates)),
   };
@@ -170,29 +175,30 @@ function aggregatePnL(
   snapshots: PriceInput[] = [],
   trades: TradeInput[] = []
 ): PnLStats {
-  const totals = {
-    daily: { change: 0, base: 0 },
-    monthly: { change: 0, base: 0 },
-    yearly: { change: 0, base: 0 },
-  };
+  let dailyChange = 0;
+  let monthlyChange = 0;
+  let yearlyChange = 0;
+  let dailyBase = 0;
+  let monthlyBase = 0;
+  let yearlyBase = 0;
 
   for (const position of positions) {
     const result = calculatePositionReturns(position, accounts, fxRates, snapshots, trades);
     const account = accounts.find((item) => item.id === position.accountId);
     const currency = getPositionCurrency(position.symbol || '', position.assetType, position.currency, account?.currency || 'CNY');
     const currentValue = convertToAccountCNY(position.currentPrice * position.quantity, currency, 'CNY', fxRates);
-    totals.daily.change += result.daily.change;
-    totals.monthly.change += result.monthly.change;
-    totals.yearly.change += result.yearly.change;
-    totals.daily.base += result.daily.change !== 0 ? currentValue - result.daily.change : 0;
-    totals.monthly.base += result.monthly.change !== 0 ? currentValue - result.monthly.change : 0;
-    totals.yearly.base += result.yearly.change !== 0 ? currentValue - result.yearly.change : 0;
+    dailyChange += result.daily.change;
+    monthlyChange += result.monthly.change;
+    yearlyChange += result.yearly.change;
+    dailyBase += currentValue - result.daily.change;
+    monthlyBase += currentValue - result.monthly.change;
+    yearlyBase += currentValue - result.yearly.change;
   }
 
   return {
-    daily: { change: totals.daily.change, changePercent: totals.daily.base > 0 ? (totals.daily.change / totals.daily.base) * 100 : 0 },
-    monthly: { change: totals.monthly.change, changePercent: totals.monthly.base > 0 ? (totals.monthly.change / totals.monthly.base) * 100 : 0 },
-    yearly: { change: totals.yearly.change, changePercent: totals.yearly.base > 0 ? (totals.yearly.change / totals.yearly.base) * 100 : 0 },
+    daily: { change: dailyChange, changePercent: dailyBase > 0 ? (dailyChange / dailyBase) * 100 : 0 },
+    monthly: { change: monthlyChange, changePercent: monthlyBase > 0 ? (monthlyChange / monthlyBase) * 100 : 0 },
+    yearly: { change: yearlyChange, changePercent: yearlyBase > 0 ? (yearlyChange / yearlyBase) * 100 : 0 },
   };
 }
 

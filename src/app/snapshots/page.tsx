@@ -18,6 +18,7 @@ import { convertToAccountCNY, getEffectiveCurrency } from '@/lib/fx';
 import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
 import { computeCashFlowAdjustedPerformance } from '@/lib/performance';
 import { countMissingMonthEndSnapshots } from '@/lib/monthEndSnapshots';
+import { cleanupAndRebuildData } from '@/lib/auditCleanup';
 
 interface FormData {
   date: string;
@@ -36,6 +37,8 @@ export default function SnapshotsPage() {
     date: new Date().toISOString().slice(0, 10),
     note: '',
   });
+  const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
+  const [cleanupRunning, setCleanupRunning] = useState(false);
 
   const missingMonthEndCount = useMemo(() => {
     const startDate = positions.reduce((start, position) => {
@@ -215,6 +218,24 @@ export default function SnapshotsPage() {
     }
   };
 
+  const runCleanup = async () => {
+    setCleanupRunning(true);
+    try {
+      const result = await cleanupAndRebuildData({
+        accounts,
+        positions,
+        snapshots,
+        trades: [],
+        transfers,
+        priceSnapshots: [],
+        fxRates,
+      });
+      setCleanupMessage(`清理完成：脏持仓 ${result.report.dirtyHoldings.length} 条，脏月份 ${result.report.dirtyMonths.length} 条，脏交易 ${result.report.dirtyTrades.length} 条，已重建 ${result.rebuiltSnapshots.length} 条月末快照。`);
+    } finally {
+      setCleanupRunning(false);
+    }
+  };
+
   const getComparison = (snapshot: Snapshot) => {
     if (!compareSnapshot) return null;
     if (snapshot.id === compareSnapshot.id) return null;
@@ -244,20 +265,34 @@ export default function SnapshotsPage() {
                 共 {snapshots.length} 条记录 · 月末快照缺失 {missingMonthEndCount} 条
               </p>
             </div>
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              记录快照
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={runCleanup}
+                disabled={cleanupRunning}
+                className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
+              >
+                {cleanupRunning ? '清理中...' : '一键清理脏数据'}
+              </button>
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                记录快照
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 space-y-6">
+        {cleanupMessage && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            {cleanupMessage}
+          </div>
+        )}
         {/* Current Stats Card */}
         <div className="bg-white/85 backdrop-blur border border-white/60 rounded-3xl p-6 shadow-[0_10px_30px_rgba(24,24,27,0.05)]">
           <div className="flex items-center justify-between mb-4">

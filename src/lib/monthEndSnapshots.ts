@@ -75,6 +75,32 @@ function toTradeInputs(trades: Trade[]): { accountId: string; symbol: string; as
   }));
 }
 
+function cashAtDate(
+  account: Account,
+  date: string,
+  trades: Trade[],
+  transfers: Transfer[]
+): number {
+  const current = account.balance;
+
+  const tradeAdjustment = trades.reduce((sum, trade) => {
+    const executed = trade.executedAt.slice(0, 10);
+    if (executed <= date || trade.accountId !== account.id) return sum;
+    if (trade.type === 'buy') return sum + trade.total + trade.fees;
+    return sum - Math.max(trade.total - trade.fees, 0);
+  }, 0);
+
+  const transferAdjustment = transfers.reduce((sum, transfer) => {
+    const created = transfer.createdAt.slice(0, 10);
+    if (created <= date) return sum;
+    if (transfer.fromAccountId === account.id && transfer.toAccountId !== account.id) return sum + transfer.amount;
+    if (transfer.toAccountId === account.id && transfer.fromAccountId !== account.id) return sum - transfer.amount;
+    return sum;
+  }, 0);
+
+  return Math.max(current + tradeAdjustment + transferAdjustment, 0);
+}
+
 export function buildMonthEndSnapshot(input: MonthEndSnapshotInput): MonthEndSnapshotResult | null {
   const monthEndDate = getMonthEndDate(input.date);
   const totalValueByAccount = new Map<string, { cash: number; investments: number }>();
@@ -92,7 +118,8 @@ export function buildMonthEndSnapshot(input: MonthEndSnapshotInput): MonthEndSna
 
   for (const account of input.accounts) {
     const acctCcy = account.currency || 'CNY';
-    const cashValue = convertToAccountCNY(account.balance, acctCcy, 'CNY', input.fxRates);
+    const historicalCash = cashAtDate(account, monthEndDate, input.trades, input.transfers);
+    const cashValue = convertToAccountCNY(historicalCash, acctCcy, 'CNY', input.fxRates);
     let investments = 0;
 
     const accountPositions = input.positions.filter((pos) => pos.accountId === account.id);
