@@ -14,6 +14,7 @@ import { inferCurrencyFromSymbol } from '@/lib/fx';
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
 import { usePnLStats, computePositionPnLRaw } from '@/lib/hooks/usePnLStats';
 import { useFxRates } from '@/lib/hooks/useFxRates';
+import { buildMissingMonthEndSnapshots } from '@/lib/monthEndSnapshots';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
   bank: '银行',
@@ -86,6 +87,28 @@ function PositionsPageContent() {
   const [priceUpdateToast, setPriceUpdateToast] = useState<{ success: number; failed: number } | null>(null);
   const suggestionRef = useRef<HTMLDivElement>(null);
   const symbolInputRef = useRef<HTMLInputElement>(null);
+
+  const appendHistoricalMonthEndSnapshots = useCallback((position: Position, accountCurrency: string) => {
+    const startDate = position.buyDate ? position.buyDate.slice(0, 10) : position.createdAt.slice(0, 10);
+    const existingDates = new Set(useAppStore.getState().snapshots.map((snapshot) => snapshot.date));
+    const generated = buildMissingMonthEndSnapshots(
+      {
+        date: getBusinessDate(),
+        accounts,
+        positions: [position],
+        trades,
+        transfers: [],
+        fxRates,
+        priceSnapshots,
+      },
+      startDate,
+      existingDates
+    );
+    if (generated.length > 0) {
+      const merged = [...useAppStore.getState().snapshots, ...generated].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      useAppStore.getState().setSnapshots(merged);
+    }
+  }, [accounts, trades, fxRates, priceSnapshots]);
 
   // Filter positions by account if filterAccountId is set
   const filteredPositions = useMemo(() => {
@@ -373,7 +396,6 @@ function PositionsPageContent() {
     if (!validateForm()) return;
 
     if (editingPosition) {
-      // Update existing position
       updatePosition(editingPosition.id, {
         accountId: formData.accountId,
         assetType: formData.assetType,
@@ -386,8 +408,7 @@ function PositionsPageContent() {
         buyDate: formData.buyDate || undefined,
       });
     } else {
-      // Add new position
-      addPosition({
+      const result = addPosition({
         accountId: formData.accountId,
         assetType: formData.assetType,
         symbol: formData.symbol.trim().toUpperCase(),
@@ -398,6 +419,9 @@ function PositionsPageContent() {
         currentPrice: parseFloat(formData.currentPrice),
         buyDate: formData.buyDate || undefined,
       });
+      if (result.success && result.data) {
+        appendHistoricalMonthEndSnapshots(result.data, formData.currency || 'CNY');
+      }
     }
 
     setFormData(initialFormData);

@@ -214,7 +214,7 @@ export default function HomePage() {
       const account = accounts.find((a) => a.id === position.accountId);
       if (!account) return;
       const acctCcy = account.currency || 'CNY';
-      const posCcy = getEffectiveCurrency(position.currency, acctCcy);
+      const posCcy = getPositionCurrency(position.symbol, position.assetType, position.currency, acctCcy);
       const value = convertToAccountCNY(position.currentPrice * position.quantity, posCcy, 'CNY', fxRates);
       const existing = allocationMap.get(position.assetType);
       if (existing) existing.value += value;
@@ -285,7 +285,7 @@ export default function HomePage() {
       let investValueCNY = 0;
 
       accountPositions.forEach((p) => {
-        const posCcy = getEffectiveCurrency(p.currency, acctCcy);
+        const posCcy = getPositionCurrency(p.symbol, p.assetType, p.currency, acctCcy);
         investValueCNY += convertToAccountCNY(p.currentPrice * p.quantity, posCcy, 'CNY', fxRates);
       });
 
