@@ -47,3 +47,17 @@ export function computeCashFlowAdjustedPerformance(snapshots: Snapshot[], transf
   if (!reliable && extNet === 0 && ordered.length < 3) return null;
   return { cumulativeReturn: endValue, cumulativeReturnPercent: Number.isFinite(pct) ? pct : null, periods: ordered.length - 1, isReliable: reliable || extNet !== 0 };
 }
+
+export function computeDailyMovement(snapshots: Snapshot[], transfers: Transfer[]) {
+  const ordered = normalizeSnapshots(snapshots);
+  if (ordered.length < 2) return null;
+  const last = ordered[ordered.length - 1];
+  const prev = ordered[ordered.length - 2];
+  if (!last || !prev) return null;
+  const day = last.date;
+  const extNet = cashFlowBetween(day, day, transfers);
+  const change = last.totalValue - prev.totalValue - extNet;
+  const denom = prev.totalValue + Math.max(extNet, 0);
+  const pct = denom > 0 ? (change / denom) * 100 : null;
+  return { change, changePercent: pct };
+}

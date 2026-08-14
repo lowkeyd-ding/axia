@@ -24,7 +24,7 @@ import { usePnLStats } from '@/lib/hooks/usePnLStats';
 import { convertToAccountCNY, getEffectiveCurrency, getPositionCurrency } from '@/lib/fx';
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
 import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
-import { computeCashFlowAdjustedPerformance } from '@/lib/performance';
+import { computeCashFlowAdjustedPerformance, computeDailyMovement } from '@/lib/performance';
 import { BENCHMARK_META } from '@/lib/benchmark';
 import {
   ALLOCATION_CATEGORIES,
@@ -141,6 +141,10 @@ export default function HomePage() {
 
   const adjustedPerformance = useMemo(
     () => computeCashFlowAdjustedPerformance(snapshots, transfers),
+    [snapshots, transfers]
+  );
+  const dailyMovement = useMemo(
+    () => computeDailyMovement(snapshots, transfers),
     [snapshots, transfers]
   );
 
@@ -408,10 +412,14 @@ export default function HomePage() {
             <div className="mt-5 pt-5 border-t border-zinc-100 grid grid-cols-3 gap-4 text-sm">
               <div className="text-center">
                 <p className="text-zinc-400 text-xs mb-1">今日变动</p>
-                <p className={`font-semibold ${pnlStats.daily.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
-                  {formatCurrency(pnlStats.daily.change)}
-                  <span className="text-xs font-normal ml-1">({formatPercent(pnlStats.daily.changePercent)})</span>
-                </p>
+                {dailyMovement ? (
+                  <p className={`font-semibold ${dailyMovement.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+                    {formatCurrency(dailyMovement.change)}
+                    <span className="text-xs font-normal ml-1">({formatPercent(dailyMovement.changePercent ?? 0)})</span>
+                  </p>
+                ) : (
+                  <p className="font-semibold text-zinc-400">暂无数据</p>
+                )}
               </div>
               <div className="text-center border-x border-zinc-100">
                 <p className="text-zinc-400 text-xs mb-1">本月变动</p>

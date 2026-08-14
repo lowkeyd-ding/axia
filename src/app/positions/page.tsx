@@ -52,7 +52,7 @@ const initialFormData: FormData = {
 
 function PositionsPageContent() {
   const router = useRouter();
-  const { positions, accounts, addPosition, updatePosition, deletePosition, addPriceSnapshot } = useAppStore();
+  const { positions, accounts, trades, priceSnapshots, addPosition, updatePosition, deletePosition, addPriceSnapshot } = useAppStore();
   const pnlStats = usePnLStats();
   const searchParams = useSearchParams();
   const filterAccountId = searchParams.get('account');
@@ -62,7 +62,7 @@ function PositionsPageContent() {
   const periodPnLMap = useMemo(() => {
     const result = new Map<string, { daily: number; monthly: number; yearly: number }>();
     positions.forEach((pos) => {
-      const pnl = computePositionPnLRaw(pos, accounts, fxRates);
+      const pnl = computePositionPnLRaw(pos, accounts, fxRates, priceSnapshots, trades);
       result.set(pos.id, {
         daily: pnl.daily.change,
         monthly: pnl.monthly.change,
@@ -70,7 +70,7 @@ function PositionsPageContent() {
       });
     });
     return result;
-  }, [positions, accounts, fxRates]);
+  }, [positions, accounts, fxRates, priceSnapshots, trades]);
 
   const [priceTierMap, setPriceTierMap] = useState<Map<string, { tier: string; sourceLabel?: string; timestamp?: string }>>(new Map());
   const [isRefreshing, setIsRefreshing] = useState(false);

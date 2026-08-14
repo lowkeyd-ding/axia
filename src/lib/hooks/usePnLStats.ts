@@ -1,19 +1,21 @@
-/**
- * Real-time P&L calculation based on period open price snapshots stored in positions.
- *
- * Logic:
- * - Each position stores dailyOpenPrice / monthlyOpenPrice / yearlyOpenPrice
- *   (populated when price is first refreshed each day/month/year)
- * - P&L = (currentPrice - openPrice) × quantity
- * - FX conversion to CNY via convertToAccountCNY
- */
-
 'use client';
 
 import { useMemo } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useFxRates } from './useFxRates';
-import { convertToAccountCNY, getPositionCurrency, getEffectiveCurrency, type FxRates } from '@/lib/fx';
+import { convertToAccountCNY, getPositionCurrency, type FxRates } from '@/lib/fx';
+import { getBusinessDate } from '@/lib/businessDate';
+import {
+  calculateDailyReturn,
+  calculateMonthlyReturn,
+  calculateYearlyReturn,
+  quantityAtDate,
+  type LocalPriceBaseline,
+  type ReturnPosition,
+  type ReturnResult,
+} from '@/lib/returnEngine';
+import { YEAR_START_2026 } from '@/data/baselines/2026-year-start';
+import { MONTH_END_2026 } from '@/data/baselines/2026-month-end';
 
 export interface PeriodPnL {
   change: number;
@@ -26,192 +28,213 @@ export interface PnLStats {
   yearly: PeriodPnL;
 }
 
+type PositionInput = {
+  currentPrice: number;
+  avgCost: number;
+  quantity: number;
+  accountId: string;
+  symbol?: string;
+  assetType?: string;
+  currency?: string;
+  buyDate?: string;
+};
+
+type AccountInput = { id: string; currency: string };
+type PriceInput = { symbol: string; date: string; price: number; currency: string; dataTier?: string };
+type TradeInput = {
+  accountId: string;
+  symbol: string;
+  assetType: string;
+  type: 'buy' | 'sell';
+  quantity: number;
+  executedAt: string;
+};
+
 function isWeekend(date = new Date()): boolean {
   const day = date.getDay();
   return day === 0 || day === 6;
 }
 
-function getPeriodStart(period: 'monthly' | 'yearly'): string {
-  const today = new Date();
-  if (period === 'monthly') return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
-  return `${today.getFullYear()}-01-01`;
+function currentYearStart(): string {
+  return `${getBusinessDate().slice(0, 4)}-01-01`;
 }
 
-function findBaselinePrice(
-  symbol: string | undefined,
-  period: 'monthly' | 'yearly',
-  snapshots: { symbol: string; date: string; price: number; dataTier?: string }[]
-): number | undefined {
-  if (!symbol) return undefined;
-  const start = getPeriodStart(period);
+function currentMonthStart(): string {
+  return `${getBusinessDate().slice(0, 7)}-01`;
+}
+
+function previousMonthKey(): string {
+  const [yearText, monthText] = getBusinessDate().slice(0, 7).split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const previous = new Date(year, month - 2, 1);
+  return `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function isUsablePrice(item: { price: number; dataTier?: string }): boolean {
+  return item.price > 0 && item.dataTier !== 'estimate' && item.dataTier !== 'stale';
+}
+
+function latestSnapshotBefore(
+  symbol: string,
+  date: string,
+  snapshots: PriceInput[]
+): PriceInput | undefined {
   return snapshots
-    .filter((item) => item.symbol.toUpperCase() === symbol.toUpperCase() && item.date < start && item.price > 0 && item.dataTier !== 'estimate' && item.dataTier !== 'stale')
-    .sort((a, b) => b.date.localeCompare(a.date))[0]?.price;
+    .filter((item) => item.symbol.toUpperCase() === symbol.toUpperCase() && item.date < date && isUsablePrice(item))
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
 }
 
-// Compute P&L for a single position (returns flat numbers, no FX)
-function computePositionPnL(
-  pos: { currentPrice: number; symbol?: string; dailyBasePrice?: number; monthlyBasePrice?: number; yearlyBasePrice?: number; quantity: number; avgCost: number }
-): { daily: number; monthly: number; yearly: number; dailyPercent: number; monthlyPercent: number; yearlyPercent: number } {
-  const weekend = isWeekend();
-  const daily = weekend ? 0 : pos.dailyBasePrice != null
-    ? (pos.currentPrice - pos.dailyBasePrice) * pos.quantity
-    : 0;
-  const monthly = pos.monthlyBasePrice != null
-    ? (pos.currentPrice - pos.monthlyBasePrice) * pos.quantity
-    : 0;
-  const yearly = pos.yearlyBasePrice != null
-    ? (pos.currentPrice - pos.yearlyBasePrice) * pos.quantity
-    : 0;
-
-  // Percent vs baseline price
-  const dailyPercent = weekend ? 0 : pos.dailyBasePrice ? ((pos.currentPrice - pos.dailyBasePrice) / pos.dailyBasePrice) * 100 : 0;
-  const monthlyPercent = pos.monthlyBasePrice ? ((pos.currentPrice - pos.monthlyBasePrice) / pos.monthlyBasePrice) * 100 : 0;
-  const yearlyPercent = pos.yearlyBasePrice ? ((pos.currentPrice - pos.yearlyBasePrice) / pos.yearlyBasePrice) * 100 : 0;
-
-  return { daily, monthly, yearly, dailyPercent, monthlyPercent, yearlyPercent };
+function localMonthBaseline(symbol: string): LocalPriceBaseline | undefined {
+  return MONTH_END_2026[previousMonthKey()]?.[symbol.toUpperCase()];
 }
 
-// Aggregate P&L across positions (with FX conversion)
-function aggregatePnL(
-  positions: { currentPrice: number; symbol?: string; avgCost: number; quantity: number; accountId: string; currency?: string;
-    dailyBasePrice?: number; monthlyBasePrice?: number; yearlyBasePrice?: number }[],
-  accounts: { id: string; currency: string }[],
+function resolveMonthlyBaseline(symbol: string, snapshots: PriceInput[]): LocalPriceBaseline | undefined {
+  const local = localMonthBaseline(symbol);
+  if (local) return local;
+  const point = latestSnapshotBefore(symbol, currentMonthStart(), snapshots);
+  return point ? { date: point.date, price: point.price, currency: point.currency } : undefined;
+}
+
+function resolveYearlyBaseline(symbol: string, snapshots: PriceInput[]): LocalPriceBaseline | undefined {
+  const local = YEAR_START_2026[symbol.toUpperCase()];
+  if (local) return local;
+  const point = latestSnapshotBefore(symbol, currentYearStart(), snapshots);
+  return point ? { date: point.date, price: point.price, currency: point.currency } : undefined;
+}
+
+function toReturnPosition(
+  position: PositionInput,
+  account: AccountInput | undefined,
+  baseline: LocalPriceBaseline | undefined,
+  previousQuantity: number | undefined,
+  monthBaseline: LocalPriceBaseline | undefined,
+  monthQuantity: number | undefined,
+  yearBaseline: LocalPriceBaseline | undefined,
+  yearQuantity: number | undefined
+): ReturnPosition {
+  return {
+    symbol: position.symbol || '',
+    assetType: position.assetType || 'stock',
+    accountCurrency: account?.currency || 'CNY',
+    storedCurrency: position.currency,
+    currentPrice: position.currentPrice,
+    currentQuantity: position.quantity,
+    previousClose: baseline,
+    previousQuantity,
+    monthBaseline,
+    monthQuantity,
+    yearBaseline,
+    yearQuantity,
+  };
+}
+
+function resultToPeriod(result: ReturnResult): PeriodPnL {
+  return { change: result.missingBaseline ? 0 : result.changeCNY, changePercent: result.missingBaseline ? 0 : result.changePercent || 0 };
+}
+
+function calculatePositionReturns(
+  position: PositionInput,
+  accounts: AccountInput[],
   fxRates: FxRates,
-  priceSnapshots: { symbol: string; date: string; price: number; dataTier?: string }[] = []
-) {
-  let dailyCNY = 0, monthlyCNY = 0, yearlyCNY = 0;
-  let dailyBase = 0, monthlyBase = 0, yearlyBase = 0;
-  const weekend = isWeekend();
+  snapshots: PriceInput[],
+  trades: TradeInput[]
+): PnLStats {
+  const account = accounts.find((item) => item.id === position.accountId);
+  const symbol = position.symbol || '';
+  const previous = latestSnapshotBefore(symbol, getBusinessDate(), snapshots);
+  const previousQuantity = previous
+    ? quantityAtDate({ accountId: position.accountId, symbol, assetType: position.assetType || 'stock', quantity: position.quantity, buyDate: position.buyDate }, trades, previous.date)
+    : undefined;
+  const monthBaseline = resolveMonthlyBaseline(symbol, snapshots);
+  const monthQuantity = monthBaseline
+    ? quantityAtDate({ accountId: position.accountId, symbol, assetType: position.assetType || 'stock', quantity: position.quantity, buyDate: position.buyDate }, trades, monthBaseline.date)
+    : undefined;
+  const yearBaseline = resolveYearlyBaseline(symbol, snapshots);
+  const yearQuantity = yearBaseline
+    ? quantityAtDate({ accountId: position.accountId, symbol, assetType: position.assetType || 'stock', quantity: position.quantity, buyDate: position.buyDate }, trades, yearBaseline.date)
+    : undefined;
+  const returnPosition = toReturnPosition(position, account, previous ? { date: previous.date, price: previous.price, currency: previous.currency } : undefined, previousQuantity, monthBaseline, monthQuantity, yearBaseline, yearQuantity);
 
-  for (const pos of positions) {
-    const account = accounts.find(a => a.id === pos.accountId);
-    const acctCcy = account?.currency || 'CNY';
-    const posCcy = getPositionCurrency((pos as { symbol?: string }).symbol || '', (pos as { assetType?: string }).assetType, pos.currency, acctCcy);
+  return {
+    daily: isWeekend() ? { change: 0, changePercent: 0 } : resultToPeriod(calculateDailyReturn(returnPosition, fxRates)),
+    monthly: resultToPeriod(calculateMonthlyReturn(returnPosition, fxRates)),
+    yearly: resultToPeriod(calculateYearlyReturn(returnPosition, fxRates)),
+  };
+}
 
-    // Current total value in CNY
-    const curValue = convertToAccountCNY(pos.currentPrice * pos.quantity, posCcy, 'CNY', fxRates);
-    dailyBase += curValue;
-    monthlyBase += curValue;
-    yearlyBase += curValue;
+function aggregatePnL(
+  positions: PositionInput[],
+  accounts: AccountInput[],
+  fxRates: FxRates,
+  snapshots: PriceInput[] = [],
+  trades: TradeInput[] = []
+): PnLStats {
+  const totals = {
+    daily: { change: 0, base: 0 },
+    monthly: { change: 0, base: 0 },
+    yearly: { change: 0, base: 0 },
+  };
 
-    // Baseline values in CNY
-    const dailyBaseVal = weekend
-      ? curValue
-      : pos.dailyBasePrice != null
-        ? convertToAccountCNY(pos.dailyBasePrice * pos.quantity, posCcy, 'CNY', fxRates)
-        : curValue;
-    const monthlyBaseline = findBaselinePrice(pos.symbol, 'monthly', priceSnapshots) ?? pos.monthlyBasePrice;
-    const yearlyBaseline = findBaselinePrice(pos.symbol, 'yearly', priceSnapshots) ?? pos.yearlyBasePrice;
-    const monthlyBaseVal = monthlyBaseline != null
-      ? convertToAccountCNY(monthlyBaseline * pos.quantity, posCcy, 'CNY', fxRates)
-      : curValue;
-    const yearlyBaseVal = yearlyBaseline != null
-      ? convertToAccountCNY(yearlyBaseline * pos.quantity, posCcy, 'CNY', fxRates)
-      : curValue;
-
-    dailyCNY += dailyBaseVal;
-    monthlyCNY += monthlyBaseVal;
-    yearlyCNY += yearlyBaseVal;
+  for (const position of positions) {
+    const result = calculatePositionReturns(position, accounts, fxRates, snapshots, trades);
+    const account = accounts.find((item) => item.id === position.accountId);
+    const currency = getPositionCurrency(position.symbol || '', position.assetType, position.currency, account?.currency || 'CNY');
+    const currentValue = convertToAccountCNY(position.currentPrice * position.quantity, currency, 'CNY', fxRates);
+    totals.daily.change += result.daily.change;
+    totals.monthly.change += result.monthly.change;
+    totals.yearly.change += result.yearly.change;
+    totals.daily.base += result.daily.change !== 0 ? currentValue - result.daily.change : 0;
+    totals.monthly.base += result.monthly.change !== 0 ? currentValue - result.monthly.change : 0;
+    totals.yearly.base += result.yearly.change !== 0 ? currentValue - result.yearly.change : 0;
   }
 
-  const calcChange = (current: number, baseVal: number): PeriodPnL => {
-    const change = current - baseVal;
-    const percent = baseVal > 0 ? (change / baseVal) * 100 : 0;
-    return { change, changePercent: percent };
-  };
-
   return {
-    daily: weekend ? { change: 0, changePercent: 0 } : calcChange(dailyBase, dailyCNY),
-    monthly: calcChange(monthlyBase, monthlyCNY),
-    yearly: calcChange(yearlyBase, yearlyCNY),
+    daily: { change: totals.daily.change, changePercent: totals.daily.base > 0 ? (totals.daily.change / totals.daily.base) * 100 : 0 },
+    monthly: { change: totals.monthly.change, changePercent: totals.monthly.base > 0 ? (totals.monthly.change / totals.monthly.base) * 100 : 0 },
+    yearly: { change: totals.yearly.change, changePercent: totals.yearly.base > 0 ? (totals.yearly.change / totals.yearly.base) * 100 : 0 },
   };
 }
 
-// ── Public hooks ──────────────────────────────────────────────────────────────
-
-/** Overall P&L across all positions (in CNY) */
 export function usePnLStats(): PnLStats {
-  const { positions, accounts, priceSnapshots } = useAppStore();
+  const { positions, accounts, priceSnapshots, trades } = useAppStore();
   const { rates: fxRates } = useFxRates();
-
-  return useMemo(
-    () => aggregatePnL(positions, accounts, fxRates, priceSnapshots),
-    [positions, accounts, fxRates, priceSnapshots]
-  );
+  return useMemo(() => aggregatePnL(positions, accounts, fxRates, priceSnapshots, trades), [positions, accounts, fxRates, priceSnapshots, trades]);
 }
 
-/** P&L for a single position (in account currency) */
 export function usePositionPnL(positionId: string): PnLStats {
-  const { positions } = useAppStore();
+  const { positions, accounts, priceSnapshots, trades } = useAppStore();
   const { rates: fxRates } = useFxRates();
-
   return useMemo(() => {
-    const pos = positions.find(p => p.id === positionId);
-    if (!pos) return { daily: { change: 0, changePercent: 0 }, monthly: { change: 0, changePercent: 0 }, yearly: { change: 0, changePercent: 0 } };
-    const pnl = computePositionPnL(pos);
-    return {
-      daily: { change: pnl.daily, changePercent: pnl.dailyPercent },
-      monthly: { change: pnl.monthly, changePercent: pnl.monthlyPercent },
-      yearly: { change: pnl.yearly, changePercent: pnl.yearlyPercent },
-    };
-  }, [positionId, positions, fxRates]);
+    const position = positions.find((item) => item.id === positionId);
+    if (!position) return { daily: { change: 0, changePercent: 0 }, monthly: { change: 0, changePercent: 0 }, yearly: { change: 0, changePercent: 0 } };
+    return calculatePositionReturns(position, accounts, fxRates, priceSnapshots, trades);
+  }, [positionId, positions, accounts, fxRates, priceSnapshots, trades]);
 }
 
-/** P&L for positions belonging to a specific account */
 export function useAccountPnLStats(accountId: string): PnLStats {
-  const { positions, accounts, priceSnapshots } = useAppStore();
+  const { positions, accounts, priceSnapshots, trades } = useAppStore();
   const { rates: fxRates } = useFxRates();
-
-  return useMemo(() => {
-    const filtered = positions.filter(p => p.accountId === accountId);
-    return aggregatePnL(filtered, accounts, fxRates, priceSnapshots);
-  }, [accountId, positions, accounts, fxRates]);
+  return useMemo(() => aggregatePnL(positions.filter((item) => item.accountId === accountId), accounts, fxRates, priceSnapshots, trades), [accountId, positions, accounts, fxRates, priceSnapshots, trades]);
 }
 
-// ── Pure computation variants (no hooks, safe inside forEach/map) ──────────────
-
-/** Pure P&L for a single position (no FX) */
 export function computePositionPnLRaw(
-  pos: { currentPrice: number; avgCost: number; quantity: number; accountId: string; symbol?: string; currency?: string;
-    dailyBasePrice?: number; monthlyBasePrice?: number; yearlyBasePrice?: number },
-  accounts: { id: string; currency: string }[],
-  fxRates: FxRates
+  position: PositionInput,
+  accounts: AccountInput[],
+  fxRates: FxRates,
+  priceSnapshots: PriceInput[] = [],
+  trades: TradeInput[] = []
 ): PnLStats {
-  const account = accounts.find(a => a.id === pos.accountId);
-  const acctCcy = account?.currency || 'CNY';
-  const posCcy = getEffectiveCurrency(pos.currency, acctCcy, (pos as { symbol?: string }).symbol);
-
-  const daily = pos.dailyBasePrice != null
-    ? convertToAccountCNY((pos.currentPrice - pos.dailyBasePrice) * pos.quantity, posCcy, 'CNY', fxRates)
-    : 0;
-  const monthly = pos.monthlyBasePrice != null
-    ? convertToAccountCNY((pos.currentPrice - pos.monthlyBasePrice) * pos.quantity, posCcy, 'CNY', fxRates)
-    : 0;
-  const yearly = pos.yearlyBasePrice != null
-    ? convertToAccountCNY((pos.currentPrice - pos.yearlyBasePrice) * pos.quantity, posCcy, 'CNY', fxRates)
-    : 0;
-
-  const dailyPercent = pos.dailyBasePrice ? ((pos.currentPrice - pos.dailyBasePrice) / pos.dailyBasePrice) * 100 : 0;
-  const monthlyPercent = pos.monthlyBasePrice ? ((pos.currentPrice - pos.monthlyBasePrice) / pos.monthlyBasePrice) * 100 : 0;
-  const yearlyPercent = pos.yearlyBasePrice ? ((pos.currentPrice - pos.yearlyBasePrice) / pos.yearlyBasePrice) * 100 : 0;
-
-  return {
-    daily: { change: daily, changePercent: dailyPercent },
-    monthly: { change: monthly, changePercent: monthlyPercent },
-    yearly: { change: yearly, changePercent: yearlyPercent },
-  };
+  return calculatePositionReturns(position, accounts, fxRates, priceSnapshots, trades);
 }
 
-/** Pure account P&L aggregation (no hooks) */
 export function computeAccountPnLRaw(
   accountId: string,
-  positions: { currentPrice: number; avgCost: number; quantity: number; accountId: string; currency?: string;
-    dailyBasePrice?: number; monthlyBasePrice?: number; yearlyBasePrice?: number }[],
-  accounts: { id: string; currency: string }[],
+  positions: PositionInput[],
+  accounts: AccountInput[],
   fxRates: FxRates,
-  priceSnapshots: { symbol: string; date: string; price: number; dataTier?: string }[] = []
+  priceSnapshots: PriceInput[] = [],
+  trades: TradeInput[] = []
 ): PnLStats {
-  const filtered = positions.filter(p => p.accountId === accountId);
-  return aggregatePnL(filtered, accounts, fxRates, priceSnapshots);
+  return aggregatePnL(positions.filter((item) => item.accountId === accountId), accounts, fxRates, priceSnapshots, trades);
 }

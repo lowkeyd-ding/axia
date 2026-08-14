@@ -180,7 +180,8 @@ export function convertToAccountCNY(
     return positionValue * rates.HKD;
   }
 
-  // 3. 港币账户（HKD → CNY）使用前一交易日中国银行港币现汇卖出价近似值
+  // HKD → CNY is handled by the HKEX settlement rate above for HKEX holdings.
+  // Other HKD account conversions use the bank's latest sell rate.
   if (posCurrency === 'HKD' && acctCurrency === 'CNY') {
     return positionValue * (rates.bocHkd?.rate || rates.HKD);
   }
