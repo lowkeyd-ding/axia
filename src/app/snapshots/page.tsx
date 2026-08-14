@@ -17,6 +17,7 @@ import { useFxRates } from '@/lib/hooks/useFxRates';
 import { convertToAccountCNY, getEffectiveCurrency } from '@/lib/fx';
 import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
 import { computeCashFlowAdjustedPerformance } from '@/lib/performance';
+import { countMissingMonthEndSnapshots } from '@/lib/monthEndSnapshots';
 
 interface FormData {
   date: string;
@@ -35,6 +36,27 @@ export default function SnapshotsPage() {
     date: new Date().toISOString().slice(0, 10),
     note: '',
   });
+
+  const missingMonthEndCount = useMemo(() => {
+    const startDate = positions.reduce((start, position) => {
+      const candidate = position.buyDate ? position.buyDate.slice(0, 10) : position.createdAt.slice(0, 10);
+      return candidate < start ? candidate : start;
+    }, new Date().toISOString().slice(0, 10));
+
+    return countMissingMonthEndSnapshots(
+      {
+        date: new Date().toISOString().slice(0, 10),
+        accounts,
+        positions,
+        trades: [],
+        transfers,
+        fxRates,
+        priceSnapshots: [],
+      },
+      startDate,
+      new Set(snapshots.map((snapshot) => snapshot.date))
+    );
+  }, [accounts, positions, transfers, fxRates, snapshots]);
 
   useEffect(() => {
     if (searchParams.get('new') === '1') {
@@ -215,11 +237,11 @@ export default function SnapshotsPage() {
     <div className="flex flex-col min-h-screen bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.06),transparent_24%),linear-gradient(to_bottom,#fafafa,#f8fafc)] text-zinc-900">
       <header className="border-b border-white/60 bg-white/75 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.6),0_8px_30px_rgba(24,24,27,0.04)] md:block hidden">
         <div className="max-w-5xl mx-auto px-4 py-5">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">资产记录</h1>
               <p className="mt-1 text-sm text-zinc-500">
-                共 {snapshots.length} 条记录
+                共 {snapshots.length} 条记录 · 月末快照缺失 {missingMonthEndCount} 条
               </p>
             </div>
             <button

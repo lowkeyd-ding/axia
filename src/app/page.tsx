@@ -25,6 +25,7 @@ import { convertToAccountCNY, getEffectiveCurrency, getPositionCurrency } from '
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
 import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
 import { computeCashFlowAdjustedPerformance, computeDailyMovement } from '@/lib/performance';
+import { countMissingMonthEndSnapshots } from '@/lib/monthEndSnapshots';
 import { BENCHMARK_META } from '@/lib/benchmark';
 import {
   ALLOCATION_CATEGORIES,
@@ -143,6 +144,24 @@ export default function HomePage() {
     () => computeCashFlowAdjustedPerformance(snapshots, transfers),
     [snapshots, transfers]
   );
+  const missingMonthEndCount = useMemo(() => {
+    return countMissingMonthEndSnapshots(
+      {
+        date: new Date().toISOString().slice(0, 10),
+        accounts,
+        positions,
+        trades: [],
+        transfers,
+        fxRates,
+        priceSnapshots: [],
+      },
+      positions.reduce((start, position) => {
+        const candidate = position.buyDate ? position.buyDate.slice(0, 10) : position.createdAt.slice(0, 10);
+        return candidate < start ? candidate : start;
+      }, new Date().toISOString().slice(0, 10)),
+      new Set(snapshots.map((snapshot) => snapshot.date))
+    );
+  }, [accounts, positions, transfers, fxRates, snapshots]);
   const dailyMovement = useMemo(
     () => computeDailyMovement(snapshots, transfers),
     [snapshots, transfers]
@@ -366,6 +385,7 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative">
             <div className="md:col-span-1">
               <p className="text-sm text-zinc-500 mb-2">总资产</p>
+              <p className="text-[11px] text-zinc-400 mb-1">月末快照缺失 {missingMonthEndCount} 条</p>
               <p className="text-3xl font-bold text-zinc-900 leading-tight">
                 {hasVisibleData ? formatDualCurrency(totalStats.totalAssetsCNY, 'CNY') : '¥0.00'}
               </p>
@@ -411,30 +431,30 @@ export default function HomePage() {
           {positions.length > 0 && (
             <div className="mt-5 pt-5 border-t border-zinc-100 grid grid-cols-3 gap-4 text-sm">
               <div className="text-center">
-                <p className="text-zinc-400 text-xs mb-1">今日变动</p>
-                {dailyMovement ? (
-                  <p className={`font-semibold ${dailyMovement.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
-                    {formatCurrency(dailyMovement.change)}
-                    <span className="text-xs font-normal ml-1">({formatPercent(dailyMovement.changePercent ?? 0)})</span>
-                  </p>
-                ) : (
-                  <p className="font-semibold text-zinc-400">暂无数据</p>
-                )}
-              </div>
-              <div className="text-center border-x border-zinc-100">
-                <p className="text-zinc-400 text-xs mb-1">本月变动</p>
-                <p className={`font-semibold ${pnlStats.monthly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
-                  {formatCurrency(pnlStats.monthly.change)}
-                  <span className="text-xs font-normal ml-1">({formatPercent(pnlStats.monthly.changePercent)})</span>
+              <p className="text-zinc-400 text-xs mb-1">今日变动</p>
+              {dailyMovement ? (
+                <p className={`font-semibold ${dailyMovement.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+                  {formatCurrency(dailyMovement.change)}
+                  <span className="text-xs font-normal ml-1">({formatPercent(dailyMovement.changePercent ?? 0)})</span>
                 </p>
-              </div>
-              <div className="text-center">
-                <p className="text-zinc-400 text-xs mb-1">今年变动</p>
-                <p className={`font-semibold ${pnlStats.yearly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
-                  {formatCurrency(pnlStats.yearly.change)}
-                  <span className="text-xs font-normal ml-1">({formatPercent(pnlStats.yearly.changePercent)})</span>
-                </p>
-              </div>
+              ) : (
+                <p className="font-semibold text-zinc-400">暂无数据</p>
+              )}
+            </div>
+            <div className="text-center border-x border-zinc-100">
+              <p className="text-zinc-400 text-xs mb-1">本月收益</p>
+              <p className={`font-semibold ${pnlStats.monthly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+                {formatCurrency(pnlStats.monthly.change)}
+                <span className="text-xs font-normal ml-1">({formatPercent(pnlStats.monthly.changePercent)})</span>
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-zinc-400 text-xs mb-1">今年收益</p>
+              <p className={`font-semibold ${pnlStats.yearly.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+                {formatCurrency(pnlStats.yearly.change)}
+                <span className="text-xs font-normal ml-1">({formatPercent(pnlStats.yearly.changePercent)})</span>
+              </p>
+            </div>
             </div>
           )}
 
@@ -541,6 +561,9 @@ export default function HomePage() {
           {/* 收益率曲线 */}
           <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2 text-xs text-zinc-500">
+              <span>缺失月末快照 {missingMonthEndCount} 条</span>
+            </div>
               <div>
                 <h2 className="text-base font-medium text-zinc-900">账户资产趋势</h2>
                 <p className="text-xs text-zinc-500 mt-1">充值、取现和转账都会影响曲线</p>

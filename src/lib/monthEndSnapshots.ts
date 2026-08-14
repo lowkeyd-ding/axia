@@ -214,3 +214,7 @@ export function buildMissingMonthEndSnapshots(input: MonthEndSnapshotInput, star
     })
     .filter((item): item is Snapshot => item != null);
 }
+
+export function countMissingMonthEndSnapshots(input: MonthEndSnapshotInput, startDate: string, existingDates: Set<string>): number {
+  return listMonthEndDates(startDate, input.date).filter((date) => !existingDates.has(date)).length;
+}
