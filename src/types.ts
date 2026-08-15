@@ -39,7 +39,10 @@ export interface Position {
   currentPrice: number;
   currency?: string; // 持仓币种，如果不填则使用账户币种
   buyDate?: string; // 买入日期 YYYY-MM-DD
-  // Period baseline prices for P&L calculation — captured ONCE when period changes, then locked
+  /**
+   * @deprecated 以下基准字段由旧收益引擎使用，新域层通过事件投影和价格观测推导收益。
+   * 后续迁移完成后将移除这些字段，不要在新代码中依赖它们。
+   */
   dailyBasePrice?: number;     // 今日基准价，写入后当日不再变化
   monthlyBasePrice?: number;   // 本月基准价，写入后当月不再变化
   yearlyBasePrice?: number;    // 本年基准价，写入后本年不再变化

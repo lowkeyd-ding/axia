@@ -1,4 +1,5 @@
 import type { AssetType, TargetAllocation } from '@/types';
+import { evaluateStrategy, validateStrategy } from '@/lib/domain/strategy';
 
 export type AllocationCategory = AssetType | 'cash';
 
@@ -30,6 +31,8 @@ export function validateTargetAllocation(allocation: Pick<TargetAllocation, 'nam
   if (total > 100 + Number.EPSILON) return '目标比例合计不能超过 100%。';
   return null;
 }
+
+export { validateStrategy, evaluateStrategy };
 
 export function validateAllocationRows(
   rows: Array<{ category: AllocationCategory; percentage: number }>

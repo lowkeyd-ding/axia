@@ -1,4 +1,6 @@
 import type { Snapshot, Transfer } from '@/types';
+import { computeStrictPerformance } from '@/lib/domain/performance';
+import { createMoney } from '@/lib/domain/money';
 
 export interface CashFlowAdjustedPerformanceResult {
   cumulativeReturn: number;
@@ -61,3 +63,7 @@ export function computeDailyMovement(snapshots: Snapshot[], transfers: Transfer[
   const pct = denom > 0 ? (change / denom) * 100 : null;
   return { change, changePercent: pct };
 }
+
+export { computeStrictPerformance, createMoney };
+
+export type { DataQuality, DataQualityIssue, PerformanceResult } from '@/lib/domain/performance';

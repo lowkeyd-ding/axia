@@ -15,6 +15,10 @@ import {
 } from '@/types';
 import { syncToCloud as cloudSyncToCloud, loadFromCloud as cloudLoadFromCloud } from './sync';
 import { getBusinessDate, getBusinessMonth, getBusinessYear } from './businessDate';
+import type { EconomicEvent } from '@/lib/domain/events';
+import { applyEvent, EMPTY_PROJECTION_STATE } from '@/lib/domain/events';
+import { createMoney } from '@/lib/domain/money';
+import { createQuantity } from '@/lib/domain/quantity';
 
 // Debounce timer for syncing - 移入 store 内部以便更好地管理
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -46,7 +50,7 @@ async function loadFromCloudData(state: Partial<AppState>) {
       const payload = cloudData.data;
       useAppStore.setState({
         accounts: payload.accounts || [], positions: payload.positions || [], snapshots: payload.snapshots || [], trades: payload.trades || [],
-        transfers: payload.transfers || [], targetAllocations: payload.targetAllocations || [], lots: payload.lots || [], priceSnapshots: payload.priceSnapshots || [],
+        transfers: payload.transfers || [], targetAllocations: payload.targetAllocations || [], lots: payload.lots || [], priceSnapshots: payload.priceSnapshots || [], economicEvents: payload.economicEvents || [],
         _lastSyncedAt: new Date().toISOString(), _lastCloudUpdatedAt: cloudData.updatedAt,
         _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null,
       });
@@ -107,7 +111,9 @@ function todayYear(): string {
   return getBusinessYear();
 }
 
-// Capture period baseline — called when date boundary changes, locks the price for that period
+/**
+ * @deprecated 旧基准字段写入逻辑，新域层通过事件投影推导收益，后续将移除。
+ */
 function captureBaseline(
   pos: Position,
   price: number,
@@ -136,7 +142,9 @@ function captureBaseline(
   return updates;
 }
 
-// Init baseline fields for existing positions (backward compatibility)
+/**
+ * @deprecated 旧基准字段初始化逻辑，后续将移除。
+ */
 function initBaselineFields(pos: Position, price: number, roundP: (v: number) => number): Partial<Position> {
   const today = todayDate();
   const month = todayMonth();
@@ -174,6 +182,7 @@ async function scheduleCloudSync() {
       targetAllocations: state.targetAllocations,
       lots: state.lots,
       priceSnapshots: state.priceSnapshots,
+      economicEvents: state.economicEvents,
     };
     const success = await cloudSyncToCloud(data);
     if (success) {
@@ -192,6 +201,7 @@ interface AppState {
   targetAllocations: TargetAllocation[];
   lots: Lot[];
   priceSnapshots: PriceSnapshot[];
+  economicEvents: EconomicEvent[];
 
   // Sync state
   _hasLoadedFromCloud: boolean;
@@ -274,6 +284,7 @@ export const useAppStore = create<AppState>()(
   targetAllocations: [],
   lots: [],
   priceSnapshots: [],
+  economicEvents: [],
   _hasLoadedFromCloud: false,
   _lastSyncedAt: null,
   _lastCloudUpdatedAt: null,
@@ -287,7 +298,7 @@ export const useAppStore = create<AppState>()(
     const state = get();
     if (choice === 'cloud' && state._pendingCloudData) {
       const d = state._pendingCloudData;
-      set({ accounts: d.accounts || [], positions: d.positions || [], snapshots: d.snapshots || [], trades: d.trades || [], transfers: d.transfers || [], targetAllocations: d.targetAllocations || [], lots: d.lots || [], priceSnapshots: d.priceSnapshots || [], _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null, _lastCloudUpdatedAt: state._pendingCloudUpdatedAt, _pendingCloudData: null, _pendingCloudUpdatedAt: null });
+      set({ accounts: d.accounts || [], positions: d.positions || [], snapshots: d.snapshots || [], trades: d.trades || [], transfers: d.transfers || [], targetAllocations: d.targetAllocations || [], lots: d.lots || [], priceSnapshots: d.priceSnapshots || [], economicEvents: d.economicEvents || [], _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null, _lastCloudUpdatedAt: state._pendingCloudUpdatedAt, _pendingCloudData: null, _pendingCloudUpdatedAt: null });
       return true;
     }
     if (choice === 'local') {
@@ -838,6 +849,22 @@ export const useAppStore = create<AppState>()(
         accounts: newAccounts,
         trades: newTrades,
         lots: newLots,
+        economicEvents: [...state.economicEvents, {
+          id: newTrade.id,
+          type: tradeData.type === 'buy' ? 'buy' : 'sell',
+          occurredAt: tradeData.executedAt,
+          businessDate: getBusinessDate(new Date(tradeData.executedAt)),
+          createdAt: getNow(),
+          source: 'user',
+          status: 'posted',
+          idempotencyKey: newTrade.id,
+          accountId: tradeData.accountId,
+          symbol: tradeData.symbol,
+          assetType: tradeData.assetType,
+          quantity: createQuantity(tradeData.quantity),
+          price: createMoney(tradeData.price, { currency: 'CNY' }),
+          fees: createMoney(tradeData.fees, { currency: 'CNY' }),
+        } as EconomicEvent],
       };
     });
 
@@ -1110,6 +1137,7 @@ export const useAppStore = create<AppState>()(
       targetAllocations: [],
       lots: [],
       priceSnapshots: [],
+      economicEvents: [],
       _hasLoadedFromCloud: false,
       _lastSyncedAt: null,
     });
@@ -1197,6 +1225,7 @@ export const useAppStore = create<AppState>()(
         _hasUnsyncedChanges: state._hasUnsyncedChanges,
         _syncStatus: state._syncStatus,
         _syncError: state._syncError,
+        economicEvents: state.economicEvents,
       }),
       onRehydrateStorage: () => (state) => {
         // 数据从 localStorage 恢复后，在下一个事件循环中加载云端数据

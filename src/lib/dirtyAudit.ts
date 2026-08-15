@@ -1,4 +1,5 @@
 import type { Account, Position, Snapshot, Trade, Transfer } from '@/types';
+import type { FxRates } from '@/lib/fx';
 import { countMissingMonthEndSnapshots, listMonthEndDates } from '@/lib/monthEndSnapshots';
 
 export interface DirtyHoldingItem {
@@ -54,7 +55,7 @@ export function auditDirtyHoldings(positions: Position[]): DirtyHoldingItem[] {
   });
 }
 
-export function auditDirtyMonths(accounts: Account[], positions: Position[], snapshots: Snapshot[], transfers: Transfer[]): DirtyMonthItem[] {
+export function auditDirtyMonths(accounts: Account[], positions: Position[], snapshots: Snapshot[], transfers: Transfer[], fxRates: FxRates): DirtyMonthItem[] {
   const existingDates = new Set(snapshots.map((snapshot) => snapshot.date));
   const startDate = positions.reduce((start, position) => {
     const candidate = position.buyDate ? position.buyDate.slice(0, 10) : position.createdAt.slice(0, 10);
@@ -69,7 +70,7 @@ export function auditDirtyMonths(accounts: Account[], positions: Position[], sna
       positions,
       trades: [],
       transfers,
-      fxRates: { HKD: 1, USD: 1, EUR: 1, JPY: 1, GBP: 1 } as never,
+      fxRates,
       priceSnapshots: [],
     },
     startDate,
@@ -113,10 +114,11 @@ export function buildDirtyAuditReport(input: {
   snapshots: Snapshot[];
   trades: Trade[];
   transfers: Transfer[];
+  fxRates: FxRates;
 }): DirtyAuditReport {
   return {
     dirtyHoldings: auditDirtyHoldings(input.positions),
-    dirtyMonths: auditDirtyMonths(input.accounts, input.positions, input.snapshots, input.transfers),
+    dirtyMonths: auditDirtyMonths(input.accounts, input.positions, input.snapshots, input.transfers, input.fxRates),
     dirtyTrades: auditDirtyTrades(input.trades),
   };
 }

@@ -16,6 +16,7 @@ import { DEFAULT_EXCHANGE_RATES, type ExchangeRates } from '@/config/exchangeRat
 import { fetchSinaForexRates } from '@/lib/forexApi';
 import { getHkexSettlementRate } from '@/lib/hkexRateClient';
 import { fetchBocHkdSellRate } from '@/lib/bocRateClient';
+import { normalizeCurrency } from '@/lib/domain/currency';
 
 // 港股通结算汇率结构
 export interface HkexSettlementRates {
@@ -166,13 +167,16 @@ export function convertToAccountCNY(
   acctCurrency: string,
   rates: FxRates
 ): number {
+  const normalizedPos = normalizeCurrency(posCurrency);
+  const normalizedAcct = normalizeCurrency(acctCurrency);
+
   // 1. 同币种，无需换算
-  if (posCurrency === acctCurrency) {
+  if (normalizedPos === normalizedAcct) {
     return positionValue;
   }
 
   // 2. 港股通场景（CNY 账户 + HKD 持仓）→ 港股通结算汇率
-  if (isHkexScenario(posCurrency, acctCurrency)) {
+  if (isHkexScenario(normalizedPos, normalizedAcct)) {
     if (rates.hkex && rates.hkex.ask > 0) {
       return positionValue * rates.hkex.ask;
     }
@@ -182,18 +186,18 @@ export function convertToAccountCNY(
 
   // HKD → CNY is handled by the HKEX settlement rate above for HKEX holdings.
   // Other HKD account conversions use the bank's latest sell rate.
-  if (posCurrency === 'HKD' && acctCurrency === 'CNY') {
+  if (normalizedPos === 'HKD' && normalizedAcct === 'CNY') {
     return positionValue * (rates.bocHkd?.rate || rates.HKD);
   }
 
   // 4. 其他跨币种 → 现汇卖出价（1 外币 = X CNY）
-  const fxRate = (rates as unknown as Record<string, number | HkexSettlementRates>)[posCurrency];
+  const fxRate = (rates as unknown as Record<string, number | HkexSettlementRates>)[normalizedPos];
   if (typeof fxRate === 'number' && fxRate > 0) {
     return positionValue * fxRate;
   }
 
   // 兜底：无法识别，返回原值（不应该发生）
-  console.warn(`[fx] Unknown currency pair: ${posCurrency} → ${acctCurrency}, returning original value`);
+  console.warn(`[fx] Unknown currency pair: ${normalizedPos} → ${normalizedAcct}, returning original value`);
   return positionValue;
 }
 

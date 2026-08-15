@@ -35,6 +35,7 @@ export async function cleanupAndRebuildData(input: {
     snapshots: input.snapshots,
     trades: input.trades,
     transfers: input.transfers,
+    fxRates: input.fxRates,
   });
 
   const startDate = asOfStartDate(input.positions);
