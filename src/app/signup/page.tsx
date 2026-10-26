@@ -2,12 +2,10 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store';
 import AuthCard, { FormError, inputClass, buttonClass } from '@/components/AuthCard';
 
 export default function RegisterPage() {
-  const supabase = createClient();
   const loadFromCloud = useAppStore((s) => s.loadFromCloud);
 
   const [email, setEmail] = useState('');
@@ -36,36 +34,39 @@ export default function RegisterPage() {
     }
 
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: {
-        // 即便后端开启了"邮箱确认"，也回跳到我们的 callback
-        // Supabase 关闭确认时，signUp 后立即返回 session
-        emailRedirectTo: `${window.location.origin}/auth-callback`,
-      },
-    });
+    try {
+      const response = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const result = (await response.json()) as {
+        hasSession?: boolean;
+        error?: string;
+      };
 
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-      return;
-    }
-
-    // 立即有 session → 直接登录
-    if (data.session) {
-      try {
-        await loadFromCloud();
-      } catch {
-        // ignore
+      if (!response.ok) {
+        setError(result.error || '注册失败，请稍后重试');
+        return;
       }
-      window.location.href = '/';
-      return;
-    }
 
-    // 后端开启了"邮箱确认"
-    setInfo('注册成功！请前往邮箱点击确认链接以激活账户，然后回到登录页登录。');
-    setLoading(false);
+      // 关闭邮箱确认时，服务端会写入会话 Cookie，刷新后即可登录。
+      if (result.hasSession) {
+        try {
+          await loadFromCloud();
+        } catch {
+          // 云同步失败不阻塞首次登录。
+        }
+        window.location.href = '/';
+        return;
+      }
+
+      setInfo('注册成功！请前往邮箱点击确认链接以激活账户，然后回到登录页登录。');
+    } catch {
+      setError('无法连接注册服务，请检查网络后重试');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
