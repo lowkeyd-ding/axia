@@ -1,4 +1,4 @@
-import type { Account, AssetType } from '@/types';
+import type { AssetType } from '@/types';
 import type { CurrencyCode } from './money';
 import type { Quantity } from './quantity';
 import { createMoney, type Money } from './money';
@@ -217,7 +217,7 @@ export function applyEvent(previousState: ProjectionState, event: EconomicEvent)
     }
     case 'manual_position_opening': {
       const positionEvent = event as ManualPositionOpeningEvent;
-      const account = ensureAccount(state, positionEvent.accountId, positionEvent.currentPrice.currency);
+      ensureAccount(state, positionEvent.accountId, positionEvent.currentPrice.currency);
       const positionId = `${positionEvent.accountId}:${positionEvent.symbol}:${positionEvent.assetType}`;
       state.positions[positionId] = {
         id: positionId,
@@ -256,7 +256,7 @@ export function createCashEvent(params: {
     id: params.id,
     type: params.type,
     occurredAt: params.occurredAt || new Date().toISOString(),
-    businessDate: getBusinessDate(),
+    businessDate: getBusinessDate(new Date(params.occurredAt || Date.now())),
     createdAt: new Date().toISOString(),
     source: params.source || 'user',
     status: params.status || 'posted',

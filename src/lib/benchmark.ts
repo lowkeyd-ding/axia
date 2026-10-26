@@ -66,12 +66,11 @@ export const BENCHMARK_META: BenchmarkMeta[] = [
     market: '中国A股',
     currency: 'CNY',
     source: {
-      name: '待接入的真实历史行情源',
-      url: '',
+      name: '东方财富历史行情',
+      url: 'https://quote.eastmoney.com/zs000300.html',
       updatedAt: '',
     },
-    historyComplete: false,
-    disabledReason: '暂无可验证的基准历史数据',
+    historyComplete: true,
   },
 ];
 
@@ -113,23 +112,26 @@ export function buildBenchmarkComparison(args: {
   if (portfolioPoints.length === 0) return null;
 
   const portfolioByDate = new Map(portfolioPoints.map((p) => [p.date.slice(0, 10), p]));
-  const benchmarkByDate = new Map(benchmark.series.map((p) => [p.date.slice(0, 10), p]));
-  const sharedDates = portfolioPoints
-    .map((p) => p.date.slice(0, 10))
-    .filter((d) => benchmarkByDate.has(d));
+  const orderedBenchmark = [...benchmark.series].sort((a, b) => a.date.localeCompare(b.date));
+  const benchmarkForDate = (date: string) => [...orderedBenchmark].reverse().find((point) => {
+    if (point.date.slice(0, 10) > date) return false;
+    const gap = (new Date(`${date}T00:00:00.000Z`).getTime() - new Date(`${point.date.slice(0, 10)}T00:00:00.000Z`).getTime()) / 86_400_000;
+    return gap <= 10;
+  });
+  const sharedDates = portfolioPoints.map((p) => p.date.slice(0, 10)).filter((date) => benchmarkForDate(date));
 
   if (sharedDates.length < 2) return null;
 
   const startDate = sharedDates[0];
   const endDate = sharedDates[sharedDates.length - 1];
   const basePortfolio = portfolioByDate.get(startDate);
-  const baseBenchmark = benchmarkByDate.get(startDate);
+  const baseBenchmark = benchmarkForDate(startDate);
   if (!basePortfolio || !baseBenchmark) return null;
 
   const points: BenchmarkComparisonPoint[] = [];
   for (const date of sharedDates) {
     const p = portfolioByDate.get(date);
-    const b = benchmarkByDate.get(date);
+    const b = benchmarkForDate(date);
     if (!p || !b) continue;
     points.push({
       date,

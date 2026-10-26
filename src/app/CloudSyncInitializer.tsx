@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { useAppStore, clearSyncTimer } from '@/lib/store';
 import { useAuth } from '@/components/AuthProvider';
@@ -10,20 +10,18 @@ const AUTH_PATHS = ['/signin', '/signup', '/forgot-password', '/reset-password',
 
 export function CloudSyncInitializer() {
   const pathname = usePathname();
-  const [isReady, setIsReady] = useState(false);
   const { user, isLoading: isAuthLoading } = useAuth();
-  const { loadFromCloud, _hasLoadedFromCloud } = useAppStore();
+  const { loadFromCloud } = useAppStore();
 
   // Auth 页不触发云端同步，避免未登录时不必要的 API 调用
   const isAuthPage = AUTH_PATHS.some((p) => pathname.startsWith(p));
 
   // 跟踪当前 user.id，使得登录/切换账号时重新拉取
-  const [lastLoadedUserId, setLastLoadedUserId] = useState<string | null>(null);
+  const lastLoadedUserId = useRef<string | null>(null);
 
   useEffect(() => {
     if (isAuthPage) {
-      setLastLoadedUserId(null);
-      setIsReady(true);
+      lastLoadedUserId.current = null;
       return;
     }
 
@@ -32,26 +30,22 @@ export function CloudSyncInitializer() {
 
     // 未登录：重置用户缓存，避免再次登录时跳过云端读取
     if (!user) {
-      setLastLoadedUserId(null);
-      setIsReady(true);
+      lastLoadedUserId.current = null;
       return;
     }
 
     // 已登录，但还没为这个 user 加载过 → 加载
-    if (lastLoadedUserId !== user.id) {
+    if (lastLoadedUserId.current !== user.id) {
       loadFromCloud().finally(() => {
-        setLastLoadedUserId(user.id);
-        setIsReady(true);
+        lastLoadedUserId.current = user.id;
       });
       return;
     }
 
-    setIsReady(true);
-
     return () => {
       clearSyncTimer();
     };
-  }, [isAuthPage, isAuthLoading, user, lastLoadedUserId, loadFromCloud]);
+  }, [isAuthPage, isAuthLoading, user, loadFromCloud]);
 
   return null;
 }

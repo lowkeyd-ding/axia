@@ -21,8 +21,6 @@ export interface PriceData {
   sourceLabel?: string;
 }
 
-import { MOCK_PRICES } from './mockPrices';
-
 function toSinaSymbol(symbol: string): { sinaSymbol: string; exchange: string } {
   const upper = symbol.toUpperCase();
   if (/^[023]\d{5}$/.test(upper)) return { sinaSymbol: `sz${upper}`, exchange: 'SZ' };

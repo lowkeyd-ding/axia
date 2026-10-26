@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { computeStrictPerformance } from '@/lib/domain/performance';
 import { createMoney } from '@/lib/domain/money';
+import type { CashEvent } from '@/lib/domain/events';
 
 const baseEvent = {
   id: 'e1',
@@ -35,8 +36,8 @@ describe('computeStrictPerformance', () => {
       openingValue: createMoney(100, { currency: 'CNY' }),
       closingValue: createMoney(170, { currency: 'CNY' }),
       events: [
-        { ...baseEvent, id: 'in1', type: 'external_cash_in', accountId: 'a1', amount: createMoney(50, { currency: 'CNY' }), currency: 'CNY' },
-      ] as any,
+        { ...baseEvent, id: 'in1', type: 'external_cash_in', accountId: 'a1', amount: createMoney(50, { currency: 'CNY' }), currency: 'CNY' } satisfies CashEvent,
+      ],
       observations: [{
         id: 'p1', symbol: 'PORTFOLIO', assetType: 'stock', price: 170, currency: 'CNY', observedAt: '2026-01-10T00:00:00.000Z', fetchedAt: '2026-01-10T00:00:01.000Z', source: 'manual', kind: 'manual', status: 'valid',
       }],

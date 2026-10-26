@@ -1,4 +1,4 @@
-import type { Account, AssetType, Position, Snapshot, TargetAllocation, Trade } from '@/types';
+import type { Account, Position, Snapshot, TargetAllocation, Trade } from '@/types';
 import { calculateAllocationDeviations, validateTargetAllocation as validateTargetConfig, type AllocationCategory } from './targetAllocation';
 
 export const TARGET_CATEGORIES: Array<{ category: AllocationCategory; label: string }> = [

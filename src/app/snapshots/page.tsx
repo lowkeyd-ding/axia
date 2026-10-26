@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   XAxis,
@@ -17,7 +17,7 @@ import { useFxRates } from '@/lib/hooks/useFxRates';
 import { convertToAccountCNY, getEffectiveCurrency } from '@/lib/fx';
 import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
 import { computeCashFlowAdjustedPerformance } from '@/lib/performance';
-import { countMissingMonthEndSnapshots } from '@/lib/monthEndSnapshots';
+import { buildSnapshotAtDate, countMissingMonthEndSnapshots } from '@/lib/monthEndSnapshots';
 import { cleanupAndRebuildData } from '@/lib/auditCleanup';
 
 interface FormData {
@@ -28,9 +28,9 @@ interface FormData {
 export default function SnapshotsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { snapshots, accounts, positions, transfers, addSnapshot, deleteSnapshot } = useAppStore();
+  const { snapshots, accounts, positions, trades, transfers, priceSnapshots, addSnapshot, deleteSnapshot } = useAppStore();
   const { rates: fxRates } = useFxRates();
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(() => searchParams.get('new') === '1');
   const [selectedSnapshot, setSelectedSnapshot] = useState<Snapshot | null>(null);
   const [compareSnapshot, setCompareSnapshot] = useState<Snapshot | null>(null);
   const [formData, setFormData] = useState<FormData>({
@@ -51,21 +51,15 @@ export default function SnapshotsPage() {
         date: new Date().toISOString().slice(0, 10),
         accounts,
         positions,
-        trades: [],
+        trades,
         transfers,
         fxRates,
-        priceSnapshots: [],
+        priceSnapshots,
       },
       startDate,
       new Set(snapshots.map((snapshot) => snapshot.date))
     );
-  }, [accounts, positions, transfers, fxRates, snapshots]);
-
-  useEffect(() => {
-    if (searchParams.get('new') === '1') {
-      setIsModalOpen(true);
-    }
-  }, [searchParams]);
+  }, [accounts, positions, trades, transfers, fxRates, priceSnapshots, snapshots]);
 
   // Calculate current portfolio value
   const currentStats = useMemo(() => {
@@ -178,7 +172,7 @@ export default function SnapshotsPage() {
       accountValues,
       positionValues,
     };
-  }, [accounts, positions, snapshots]);
+  }, [accounts, positions, snapshots, fxRates]);
 
   const adjustedPerformance = useMemo(
     () => computeCashFlowAdjustedPerformance(snapshots, transfers),
@@ -194,21 +188,39 @@ export default function SnapshotsPage() {
   }, [snapshots]);
 
   const createSnapshot = () => {
-    const { totalValue, totalCash, totalInvestments, totalChange, totalChangePercent, dailyChange, dailyChangePercent, allocations, accountValues, positionValues } = currentStats;
+    const today = new Date().toISOString().slice(0, 10);
+    const historical = formData.date < today
+      ? buildSnapshotAtDate({ date: formData.date, accounts, positions, trades, transfers, fxRates, priceSnapshots })
+      : null;
+    const values = historical || {
+      date: formData.date,
+      totalValue: currentStats.totalValue,
+      cash: currentStats.totalCash,
+      investments: currentStats.totalInvestments,
+      totalChange: currentStats.totalChange,
+      totalChangePercent: currentStats.totalChangePercent,
+      dailyChange: currentStats.dailyChange,
+      dailyChangePercent: currentStats.dailyChangePercent,
+      allocations: currentStats.allocations,
+      accountValues: currentStats.accountValues,
+      positionValues: currentStats.positionValues,
+      dataQuality: { complete: true, issues: [] },
+    };
 
     addSnapshot({
-      date: formData.date,
-      totalValue,
-      cash: totalCash,
-      investments: totalInvestments,
-      dailyChange,
-      dailyChangePercent,
-      totalChange,
-      totalChangePercent,
-      allocations,
-      accountValues,
-      positionValues,
-      note: formData.note || undefined,
+      date: values.date,
+      totalValue: values.totalValue,
+      cash: values.cash,
+      investments: values.investments,
+      dailyChange: values.dailyChange,
+      dailyChangePercent: values.dailyChangePercent,
+      totalChange: values.totalChange,
+      totalChangePercent: values.totalChangePercent,
+      allocations: values.allocations,
+      accountValues: values.accountValues,
+      positionValues: values.positionValues,
+      dataQuality: values.dataQuality,
+      note: [formData.note, values.dataQuality.complete ? '' : `数据不完整：${values.dataQuality.issues.join('；')}`].filter(Boolean).join('｜') || undefined,
     });
 
     setFormData({ date: new Date().toISOString().slice(0, 10), note: '' });
@@ -225,9 +237,9 @@ export default function SnapshotsPage() {
         accounts,
         positions,
         snapshots,
-        trades: [],
+        trades,
         transfers,
-        priceSnapshots: [],
+        priceSnapshots,
         fxRates,
       });
       setCleanupMessage(`清理完成：脏持仓 ${result.report.dirtyHoldings.length} 条，脏月份 ${result.report.dirtyMonths.length} 条，脏交易 ${result.report.dirtyTrades.length} 条，已重建 ${result.rebuiltSnapshots.length} 条月末快照。`);

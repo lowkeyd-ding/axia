@@ -26,6 +26,7 @@ export interface MonthEndSnapshotResult {
   allocations: Snapshot['allocations'];
   accountValues: Snapshot['accountValues'];
   positionValues: PositionValue[];
+  dataQuality: { complete: boolean; issues: string[] };
 }
 
 function monthKey(date: string): string {
@@ -49,6 +50,11 @@ function getMonthEndDate(date: string): string {
 }
 
 function latestKnownPrice(symbol: string, date: string, priceSnapshots: MonthEndSnapshotInput['priceSnapshots']): { price: number; currency: string } | null {
+  const fromSnapshots = [...priceSnapshots]
+    .filter((item) => item.symbol.toUpperCase() === symbol.toUpperCase() && item.date <= date && item.price > 0)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  if (fromSnapshots) return { price: fromSnapshots.price, currency: fromSnapshots.currency };
+
   const monthBaseline = MONTH_END_2026[monthKey(date)]?.[symbol.toUpperCase()];
   if (monthBaseline) return { price: monthBaseline.price, currency: monthBaseline.currency };
 
@@ -58,10 +64,7 @@ function latestKnownPrice(symbol: string, date: string, priceSnapshots: MonthEnd
   const localYear = YEAR_START_2026[symbol.toUpperCase()];
   if (localYear) return { price: localYear.price, currency: localYear.currency };
 
-  const fromSnapshots = [...priceSnapshots]
-    .filter((item) => item.symbol.toUpperCase() === symbol.toUpperCase() && item.date <= date && item.price > 0)
-    .sort((a, b) => b.date.localeCompare(a.date))[0];
-  return fromSnapshots ? { price: fromSnapshots.price, currency: fromSnapshots.currency } : null;
+  return null;
 }
 
 function toTradeInputs(trades: Trade[]): { accountId: string; symbol: string; assetType: string; type: 'buy' | 'sell'; quantity: number; executedAt: string }[] {
@@ -101,8 +104,8 @@ function cashAtDate(
   return Math.max(current + tradeAdjustment + transferAdjustment, 0);
 }
 
-export function buildMonthEndSnapshot(input: MonthEndSnapshotInput): MonthEndSnapshotResult | null {
-  const monthEndDate = getMonthEndDate(input.date);
+export function buildSnapshotAtDate(input: MonthEndSnapshotInput): MonthEndSnapshotResult | null {
+  const snapshotDate = input.date.slice(0, 10);
   const totalValueByAccount = new Map<string, { cash: number; investments: number }>();
   const allocationMap = new Map<string, number>([
     ['stock', 0],
@@ -115,10 +118,11 @@ export function buildMonthEndSnapshot(input: MonthEndSnapshotInput): MonthEndSna
   let totalValue = 0;
   const positionValues: PositionValue[] = [];
   const tradeInputs = toTradeInputs(input.trades);
+  const issues: string[] = [];
 
   for (const account of input.accounts) {
     const acctCcy = account.currency || 'CNY';
-    const historicalCash = cashAtDate(account, monthEndDate, input.trades, input.transfers);
+    const historicalCash = cashAtDate(account, snapshotDate, input.trades, input.transfers);
     const cashValue = convertToAccountCNY(historicalCash, acctCcy, 'CNY', input.fxRates);
     let investments = 0;
 
@@ -135,10 +139,14 @@ export function buildMonthEndSnapshot(input: MonthEndSnapshotInput): MonthEndSna
           buyDate: position.buyDate,
         },
         tradeInputs,
-        monthEndDate
+        snapshotDate
       );
-      const baseline = latestKnownPrice(position.symbol, monthEndDate, input.priceSnapshots);
-      if (!baseline || quantity <= 0) continue;
+      if (quantity <= 0) continue;
+      const baseline = latestKnownPrice(position.symbol, snapshotDate, input.priceSnapshots);
+      if (!baseline) {
+        issues.push(`${position.symbol} 缺少 ${snapshotDate} 或之前的历史价格`);
+        continue;
+      }
       const value = convertToAccountCNY(baseline.price * quantity, currency, 'CNY', input.fxRates);
       const costBasis = convertToAccountCNY(position.avgCost * quantity, currency, 'CNY', input.fxRates);
       const pnl = value - costBasis;
@@ -186,7 +194,7 @@ export function buildMonthEndSnapshot(input: MonthEndSnapshotInput): MonthEndSna
     }));
 
   return {
-    date: monthEndDate,
+    date: snapshotDate,
     totalValue,
     cash: totalCash,
     investments: totalInvestments,
@@ -197,7 +205,12 @@ export function buildMonthEndSnapshot(input: MonthEndSnapshotInput): MonthEndSna
     allocations,
     accountValues,
     positionValues,
+    dataQuality: { complete: issues.length === 0, issues },
   };
+}
+
+export function buildMonthEndSnapshot(input: MonthEndSnapshotInput): MonthEndSnapshotResult | null {
+  return buildSnapshotAtDate({ ...input, date: getMonthEndDate(input.date) });
 }
 
 export function listMonthEndDates(startDate: string, endDate: string): string[] {
@@ -235,6 +248,7 @@ export function buildMissingMonthEndSnapshots(input: MonthEndSnapshotInput, star
         allocations: result.allocations,
         accountValues: result.accountValues,
         positionValues: result.positionValues,
+        dataQuality: result.dataQuality,
         note: '月末自动补全快照',
         createdAt: new Date().toISOString(),
       } as Snapshot;

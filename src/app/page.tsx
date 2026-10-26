@@ -3,32 +3,24 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { useAppStore } from '@/lib/store';
-import type { Account, AssetType } from '@/types';
+import type { AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
 import { useFxRates } from '@/lib/hooks/useFxRates';
 import { usePnLStats } from '@/lib/hooks/usePnLStats';
-import { convertToAccountCNY, getEffectiveCurrency, getPositionCurrency } from '@/lib/fx';
+import { useBenchmarkComparison } from '@/lib/hooks/useBenchmarkComparison';
+import { convertToAccountCNY, getPositionCurrency } from '@/lib/fx';
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
 import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
-import { computeCashFlowAdjustedPerformance, computeDailyMovement, type DataQuality } from '@/lib/performance';
+import { computeAdvancedPerformance, computeCashFlowAdjustedPerformance, computeDailyMovement } from '@/lib/performance';
 import { buildDashboardSummary } from '@/lib/dashboard';
-import { countDashboardMissingMonthEndSnapshots } from '@/lib/monthEndAudit';
 import {
   ALLOCATION_CATEGORIES,
   calculateAllocationDeviations,
+  calculateRebalanceRecommendations,
   validateAllocationRows,
   type AllocationCategory,
 } from '@/lib/targetAllocation';
-
-const ASSET_COLORS = ['#3b82f6', '#8b5cf6', '#f59e0b', '#06b6d4'];
-const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
-  bank: '银行',
-  securities: '证券',
-  fund: '基金',
-  other: '其他',
-};
 
 export default function HomePage() {
   const router = useRouter();
@@ -37,6 +29,7 @@ export default function HomePage() {
     positions,
     snapshots,
     transfers,
+    cashAdjustments,
     targetAllocations,
     _syncStatus,
     _syncError,
@@ -55,6 +48,7 @@ export default function HomePage() {
   const [allocationError, setAllocationError] = useState<string | null>(null);
   const { rates: fxRates } = useFxRates();
   const pnlStats = usePnLStats();
+  const benchmark = useBenchmarkComparison(snapshots);
 
   const dashboard = useMemo(() => buildDashboardSummary({
     accounts,
@@ -99,9 +93,12 @@ export default function HomePage() {
   }, [accounts, positions, fxRates]);
 
   const adjustedPerformance = useMemo(() => computeCashFlowAdjustedPerformance(snapshots, transfers), [snapshots, transfers]);
+  const advancedPerformance = useMemo(() => computeAdvancedPerformance(snapshots, transfers), [snapshots, transfers]);
   const dailyMovement = useMemo(() => computeDailyMovement(snapshots, transfers), [snapshots, transfers]);
-  const missingMonthEndCount = useMemo(() => countDashboardMissingMonthEndSnapshots({ accounts, positions, snapshots, transfers, fxRates }), [accounts, positions, snapshots, transfers, fxRates]);
-
+  const incomeAttribution = useMemo(() => cashAdjustments.reduce((totals, item) => {
+    totals[item.category] += item.amount;
+    return totals;
+  }, { dividend: 0, interest: 0, tax: 0, fee: 0 }), [cashAdjustments]);
   const assetAllocations = useMemo(() => {
     const allocationMap = new Map<string, { type: AssetType; name: string; value: number }>();
     (['stock', 'fund', 'bank_wealth_management', 'bank_cash'] as AssetType[]).forEach((type) => allocationMap.set(type, { type, name: ASSET_TYPE_CONFIG[type].label, value: 0 }));
@@ -134,6 +131,16 @@ export default function HomePage() {
     }, {});
     return calculateAllocationDeviations(current, activeTargetAllocation).slice(0, 3);
   }, [activeTargetAllocation, assetAllocations]);
+  const rebalanceRecommendations = useMemo(() => {
+    if (!activeTargetAllocation) return [];
+    const current = assetAllocations.reduce<Partial<Record<AllocationCategory, number>>>((result, item) => {
+      result[item.type] = (result[item.type] ?? 0) + item.percentage;
+      return result;
+    }, {});
+    return calculateRebalanceRecommendations(current, activeTargetAllocation, totalStats.totalAssetsCNY)
+      .filter((item) => item.action !== '保持')
+      .slice(0, 3);
+  }, [activeTargetAllocation, assetAllocations, totalStats.totalAssetsCNY]);
 
   const topHolding = useMemo(() => {
     let best = null as null | { name: string; ratio: number };
@@ -160,6 +167,16 @@ export default function HomePage() {
   const getPnLColor = (value: number) => (value > 0 ? DEFAULT_PRICE_COLORS.rise : value < 0 ? DEFAULT_PRICE_COLORS.fall : 'text-zinc-400');
 
   const openRoute = (path: string) => router.push(path);
+  const openAllocationEditor = () => {
+    setAllocationName(activeTargetAllocation?.name || '我的目标配置');
+    setAllocationRows(ALLOCATION_CATEGORIES.reduce<Record<AllocationCategory, string>>((rows, { category }) => {
+      const target = activeTargetAllocation?.allocations.find((item) => item.category === category)?.percentage;
+      rows[category] = target === undefined ? '' : String(target);
+      return rows;
+    }, { stock: '', fund: '', bank_wealth_management: '', bank_cash: '', cash: '' }));
+    setAllocationError(null);
+    setIsAllocationEditorOpen(true);
+  };
   const saveAllocation = () => {
     const rows = ALLOCATION_CATEGORIES.flatMap(({ category }) => {
       const raw = allocationRows[category].trim();
@@ -174,16 +191,6 @@ export default function HomePage() {
     else addTargetAllocation({ name: allocationName.trim(), allocations: rows });
     setIsAllocationEditorOpen(false);
   };
-
-  const accountSummaries = useMemo(() => accounts.map((account) => {
-    const accountPositions = positions.filter((p) => p.accountId === account.id);
-    const acctCcy = account.currency || 'CNY';
-    const investValueCNY = accountPositions.reduce((sum, p) => sum + convertToAccountCNY(p.currentPrice * p.quantity, getPositionCurrency(p.symbol, p.assetType, p.currency, acctCcy), 'CNY', fxRates), 0);
-    const balanceCNY = convertToAccountCNY(account.balance, acctCcy, 'CNY', fxRates);
-    const valueCNY = balanceCNY + investValueCNY;
-    const percentage = totalStats.totalAssetsCNY > 0 ? (valueCNY / totalStats.totalAssetsCNY) * 100 : 0;
-    return { id: account.id, name: account.name, type: account.type, institution: account.institution, holder: account.holder, value: account.balance + accountPositions.reduce((sum, p) => sum + p.currentPrice * p.quantity, 0), valueCNY, currency: account.currency, percentage };
-  }), [accounts, positions, totalStats.totalAssetsCNY, fxRates]);
 
   return (
     <div className="flex min-h-screen flex-col bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.08),transparent_30%),linear-gradient(to_bottom,#fafafa,#f8fafc)] text-zinc-900">
@@ -235,11 +242,34 @@ export default function HomePage() {
             </div>
             <Link href="/snapshots" className="text-sm text-blue-600 hover:text-blue-700">查看快照 →</Link>
           </div>
-          <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <div className="mt-4 grid gap-4 md:grid-cols-5">
             <div><p className="text-xs text-zinc-500">总资产</p><p className="mt-1 text-2xl font-semibold text-zinc-900">{hasVisibleData ? formatDualCurrency(totalStats.totalAssetsCNY, 'CNY') : '¥0.00'}</p></div>
             <div><p className="text-xs text-zinc-500">现金</p><p className="mt-1 text-2xl font-semibold text-blue-600">{hasVisibleData ? formatDualCurrency(totalStats.totalCashCNY, 'CNY') : '¥0.00'}</p></div>
             <div><p className="text-xs text-zinc-500">投资资产</p><p className="mt-1 text-2xl font-semibold text-zinc-900">{hasVisibleData ? formatDualCurrency(totalStats.totalInvestCNY, 'CNY') : '¥0.00'}</p></div>
           </div>
+        </section>
+
+        {cashAdjustments.length > 0 && (
+          <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="text-base font-medium text-zinc-900">收益归因</h2>
+            <p className="mt-1 text-xs text-zinc-500">仅统计已记录的股息、利息、税费和其他费用。</p>
+            <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+              <div><p className="text-xs text-zinc-500">股息</p><p className="mt-1 font-semibold text-red-500">+{formatCurrency(incomeAttribution.dividend)}</p></div>
+              <div><p className="text-xs text-zinc-500">利息</p><p className="mt-1 font-semibold text-red-500">+{formatCurrency(incomeAttribution.interest)}</p></div>
+              <div><p className="text-xs text-zinc-500">税费</p><p className="mt-1 font-semibold text-green-600">-{formatCurrency(incomeAttribution.tax)}</p></div>
+              <div><p className="text-xs text-zinc-500">其他费用</p><p className="mt-1 font-semibold text-green-600">-{formatCurrency(incomeAttribution.fee)}</p></div>
+            </div>
+          </section>
+        )}
+
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <h2 className="text-base font-medium text-zinc-900">沪深300基准</h2>
+          {benchmark.comparison ? (() => {
+            const last = benchmark.comparison.points.at(-1)!;
+            const excess = last.portfolio - last.benchmark;
+            return <div className="mt-4 grid gap-4 md:grid-cols-3"><div><p className="text-xs text-zinc-500">组合区间收益</p><p className="mt-1 text-lg font-semibold">{formatPercent(last.portfolio)}</p></div><div><p className="text-xs text-zinc-500">沪深300</p><p className="mt-1 text-lg font-semibold">{formatPercent(last.benchmark)}</p></div><div><p className="text-xs text-zinc-500">超额收益</p><p className={`mt-1 text-lg font-semibold ${getPnLColor(excess)}`}>{formatPercent(excess)}</p></div></div>;
+          })() : <p className="mt-3 text-sm text-zinc-500">{benchmark.loading ? '正在加载真实基准行情…' : benchmark.error || '至少需要两个资产快照才能比较。'}</p>}
+          <p className="mt-3 text-xs text-zinc-400">数据源：东方财富历史行情；以首个共同日期归一化比较。</p>
         </section>
 
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
@@ -253,7 +283,10 @@ export default function HomePage() {
             <div><p className="text-xs text-zinc-500">今日变动</p><p className={`mt-1 text-lg font-semibold ${dailyMovement && dailyMovement.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>{dailyMovement ? `${formatCurrency(dailyMovement.change)} (${formatPercent(dailyMovement.changePercent ?? 0)})` : '暂无数据'}</p></div>
             <div><p className="text-xs text-zinc-500">本月收益</p><p className={`mt-1 text-lg font-semibold ${getPnLColor(pnlStats.monthly.change)}`}>{formatCurrency(pnlStats.monthly.change)} ({formatPercent(pnlStats.monthly.changePercent)})</p></div>
             <div><p className="text-xs text-zinc-500">现金流调整后表现</p><p className="mt-1 text-lg font-semibold text-zinc-900">{adjustedPerformance?.cumulativeReturnPercent != null ? formatPercent(adjustedPerformance.cumulativeReturnPercent) : '数据不足'}</p></div>
+            <div><p className="text-xs text-zinc-500">TWR</p><p className="mt-1 text-lg font-semibold text-zinc-900">{advancedPerformance.twrPercent != null ? formatPercent(advancedPerformance.twrPercent) : '数据不足'}</p></div>
+            <div><p className="text-xs text-zinc-500">年化 XIRR</p><p className="mt-1 text-lg font-semibold text-zinc-900">{advancedPerformance.xirrPercent != null ? formatPercent(advancedPerformance.xirrPercent) : '数据不足'}</p></div>
           </div>
+          {!advancedPerformance.complete && <p className="mt-3 text-xs text-zinc-500">{advancedPerformance.issues.join('；')}</p>}
         </section>
 
         {activeTargetAllocation && allocationDeviations.length > 0 && (
@@ -263,7 +296,7 @@ export default function HomePage() {
                 <h2 className="text-base font-medium text-zinc-900">策略偏离</h2>
                 <p className="text-xs text-zinc-500">只看偏离最大的三项。</p>
               </div>
-              <button onClick={() => setIsAllocationEditorOpen(true)} className="text-sm text-blue-600 hover:text-blue-700">编辑目标</button>
+              <button onClick={openAllocationEditor} className="text-sm text-blue-600 hover:text-blue-700">编辑目标</button>
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               {allocationDeviations.map((item) => (
@@ -271,6 +304,22 @@ export default function HomePage() {
                   <p className="text-sm font-medium text-zinc-900">{item.label}</p>
                   <p className="mt-2 text-sm text-zinc-600">当前 {item.currentPercentage.toFixed(1)}% · 目标 {item.targetPercentage.toFixed(1)}%</p>
                   <p className="mt-1 text-sm font-semibold text-zinc-900">偏离 {item.deviation > 0 ? '+' : ''}{item.deviation.toFixed(1)}%</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {rebalanceRecommendations.length > 0 && (
+          <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="text-base font-medium text-zinc-900">再平衡建议</h2>
+            <p className="mt-1 text-xs text-zinc-500">按当前总资产估算，仅作为组合调整参考。</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              {rebalanceRecommendations.map((item) => (
+                <div key={item.category} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <p className="text-sm font-medium text-zinc-900">{item.label}</p>
+                  <p className="mt-2 text-lg font-semibold text-zinc-900">{item.action} {formatCurrency(item.amount)}</p>
+                  <p className="mt-1 text-xs text-zinc-500">当前 {item.currentPercentage.toFixed(1)}% → 目标 {item.targetPercentage.toFixed(1)}%</p>
                 </div>
               ))}
             </div>
@@ -290,6 +339,7 @@ export default function HomePage() {
                 {action.label}
               </button>
             ))}
+            {!activeTargetAllocation && <button onClick={openAllocationEditor} className="rounded-full bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700">设置目标配置</button>}
           </div>
         </section>
 
@@ -300,6 +350,27 @@ export default function HomePage() {
           <Link href="/snapshots" className="rounded-xl border border-zinc-200 bg-white p-4 text-center shadow-sm">快照</Link>
         </div>
       </main>
+      {isAllocationEditorOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4" role="dialog" aria-modal="true" aria-label="编辑目标配置">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-zinc-900">目标资产配置</h2>
+            <input value={allocationName} onChange={(event) => setAllocationName(event.target.value)} className="mt-4 w-full rounded-xl border border-zinc-300 px-3 py-2" placeholder="配置名称" />
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {ALLOCATION_CATEGORIES.map(({ category, label }) => (
+                <label key={category} className="text-sm text-zinc-600">
+                  {label}（%）
+                  <input type="number" min="0" max="100" step="0.1" value={allocationRows[category]} onChange={(event) => setAllocationRows((rows) => ({ ...rows, [category]: event.target.value }))} className="mt-1 w-full rounded-xl border border-zinc-300 px-3 py-2" />
+                </label>
+              ))}
+            </div>
+            {allocationError && <p className="mt-3 text-sm text-red-600">{allocationError}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => setIsAllocationEditorOpen(false)} className="rounded-xl px-4 py-2 text-sm text-zinc-600">取消</button>
+              <button onClick={saveAllocation} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white">保存</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

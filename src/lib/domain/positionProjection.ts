@@ -1,7 +1,7 @@
 import type { AssetType } from '@/types';
 import { createMoney, type Money } from './money';
 import { createQuantity, subtractQuantity, type Quantity } from './quantity';
-import type { EconomicEvent, ManualPositionOpeningEvent, ProjectionState, TradeEvent } from './events';
+import type { CashEvent, EconomicEvent, ProjectionState, TradeEvent, TransferEvent } from './events';
 import { applyEvent, EMPTY_PROJECTION_STATE } from './events';
 
 export interface LotProjection {
@@ -85,14 +85,14 @@ export function projectLedger(events: EconomicEvent[]): ProjectionResult {
     }
 
     if (event.type === 'external_cash_in' || event.type === 'external_cash_out' || event.type === 'manual_balance_adjustment') {
-      const cashEvent = event as any;
+      const cashEvent = event as CashEvent;
       const accountId = cashEvent.accountId;
       const currency = cashEvent.amount.currency;
       currentCashByAccount[accountId] = state.accounts[accountId]?.balance || createZeroMoney(currency);
     }
 
     if (event.type === 'internal_transfer') {
-      const transferEvent = event as any;
+      const transferEvent = event as TransferEvent;
       const currency = transferEvent.amount.currency;
       currentCashByAccount[transferEvent.fromAccountId] = state.accounts[transferEvent.fromAccountId]?.balance || createZeroMoney(currency);
       currentCashByAccount[transferEvent.toAccountId] = state.accounts[transferEvent.toAccountId]?.balance || createZeroMoney(currency);

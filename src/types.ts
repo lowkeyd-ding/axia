@@ -76,6 +76,7 @@ export interface Snapshot {
   accountValues: AccountValue[];
   positionValues: PositionValue[]; // Detailed position values
   note?: string;
+  dataQuality?: { complete: boolean; issues: string[] };
   createdAt: string;
 }
 
@@ -117,6 +118,7 @@ export interface Lot {
   fees: number;             // 买入手续费
   executedAt: string;       // 买入时间
   createdAt: string;
+  sourceTradeId?: string;   // 创建该批次的交易，用于安全回滚
   deletedAt?: string;       // 清仓后软删除
 }
 
@@ -145,6 +147,20 @@ export interface Transfer {
   amount: number;
   currency: string;
   note?: string;
+  createdAt: string;
+}
+
+export type CashAdjustmentCategory = 'dividend' | 'interest' | 'tax' | 'fee';
+
+export interface CashAdjustment {
+  id: string;
+  accountId: string;
+  category: CashAdjustmentCategory;
+  amount: number;
+  currency: string;
+  symbol?: string;
+  note?: string;
+  occurredAt: string;
   createdAt: string;
 }
 

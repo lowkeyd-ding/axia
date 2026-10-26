@@ -12,13 +12,16 @@ import {
   ActionResult,
   TradeExecutionResult,
   Lot,
+  CashAdjustment,
 } from '@/types';
-import { syncToCloud as cloudSyncToCloud, loadFromCloud as cloudLoadFromCloud } from './sync';
+import { advanceSyncMeta, syncToCloud as cloudSyncToCloud, loadFromCloud as cloudLoadFromCloud, type CloudSyncMeta } from './sync';
 import { getBusinessDate, getBusinessMonth, getBusinessYear } from './businessDate';
-import type { EconomicEvent } from '@/lib/domain/events';
-import { applyEvent, EMPTY_PROJECTION_STATE } from '@/lib/domain/events';
+import { createCashEvent, type EconomicEvent } from '@/lib/domain/events';
 import { createMoney } from '@/lib/domain/money';
 import { createQuantity } from '@/lib/domain/quantity';
+import { serializeStoreState } from '@/lib/storeSerialization';
+import { validateCloudSyncData } from '@/lib/dataValidation';
+import { normalizeCurrency } from '@/lib/domain/currency';
 
 // Debounce timer for syncing - 移入 store 内部以便更好地管理
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -35,7 +38,7 @@ export function clearSyncTimer() {
 }
 
 // 加载云端数据并更新 store
-async function loadFromCloudData(state: Partial<AppState>) {
+async function loadFromCloudData() {
   console.log('[CloudSync] Attempting to load from cloud...');
   try {
     const cloudData = await cloudLoadFromCloud();
@@ -43,15 +46,16 @@ async function loadFromCloudData(state: Partial<AppState>) {
       const local = useAppStore.getState();
       const cloudChanged = Boolean(cloudData.updatedAt && local._lastCloudUpdatedAt && cloudData.updatedAt !== local._lastCloudUpdatedAt);
       if (local._hasUnsyncedChanges && cloudChanged) {
-        useAppStore.setState({ _syncStatus: 'conflict', _syncError: '云端和本地都有新改动，请选择保留版本。', _pendingCloudData: cloudData.data, _pendingCloudUpdatedAt: cloudData.updatedAt });
+        useAppStore.setState({ _syncStatus: 'conflict', _syncError: '云端和本地都有新改动，请选择保留版本。', _pendingCloudData: cloudData.data, _pendingCloudUpdatedAt: cloudData.updatedAt, _pendingCloudMeta: cloudData.meta || null });
         return;
       }
       console.log('[CloudSync] Found cloud data, updating store');
       const payload = cloudData.data;
       useAppStore.setState({
         accounts: payload.accounts || [], positions: payload.positions || [], snapshots: payload.snapshots || [], trades: payload.trades || [],
-        transfers: payload.transfers || [], targetAllocations: payload.targetAllocations || [], lots: payload.lots || [], priceSnapshots: payload.priceSnapshots || [], economicEvents: payload.economicEvents || [],
+        transfers: payload.transfers || [], targetAllocations: payload.targetAllocations || [], lots: payload.lots || [], priceSnapshots: payload.priceSnapshots || [], economicEvents: payload.economicEvents || [], cashAdjustments: payload.cashAdjustments || [],
         _lastSyncedAt: new Date().toISOString(), _lastCloudUpdatedAt: cloudData.updatedAt,
+        _cloudMeta: cloudData.meta || null,
         _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null,
       });
       // Migration: backfill lots for positions loaded from cloud that have no lots
@@ -173,19 +177,11 @@ async function scheduleCloudSync() {
   }
   syncTimer = setTimeout(async () => {
     const state = useAppStore.getState();
-    const data = {
-      accounts: state.accounts,
-      positions: state.positions,
-      snapshots: state.snapshots,
-      trades: state.trades,
-      transfers: state.transfers,
-      targetAllocations: state.targetAllocations,
-      lots: state.lots,
-      priceSnapshots: state.priceSnapshots,
-      economicEvents: state.economicEvents,
-    };
-    const success = await cloudSyncToCloud(data);
+    const data = serializeStoreState(state);
+    const nextMeta = advanceSyncMeta(state._cloudMeta);
+    const success = await cloudSyncToCloud(data, nextMeta);
     if (success) {
+      useAppStore.setState({ _cloudMeta: nextMeta, _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null });
       console.log('[CloudSync] Auto-synced to cloud');
     }
   }, 1000);
@@ -202,6 +198,7 @@ interface AppState {
   lots: Lot[];
   priceSnapshots: PriceSnapshot[];
   economicEvents: EconomicEvent[];
+  cashAdjustments: CashAdjustment[];
 
   // Sync state
   _hasLoadedFromCloud: boolean;
@@ -212,6 +209,8 @@ interface AppState {
   _syncError: string | null;
   _pendingCloudData: import('./sync').CloudSyncData | null;
   _pendingCloudUpdatedAt: string | null;
+  _pendingCloudMeta: CloudSyncMeta | null;
+  _cloudMeta: CloudSyncMeta | null;
   resolveSyncConflict: (choice: 'cloud' | 'local') => Promise<boolean>;
 
   // Account actions
@@ -238,6 +237,8 @@ interface AppState {
   // Transfer actions (资金转入转出)
   addTransfer: (transfer: Omit<Transfer, 'id' | 'createdAt'>) => ActionResult<Transfer>;
   deleteTransfer: (id: string) => ActionResult<string>;
+  addCashAdjustment: (adjustment: Omit<CashAdjustment, 'id' | 'createdAt'>) => ActionResult<CashAdjustment>;
+  deleteCashAdjustment: (id: string) => ActionResult<string>;
 
   // Target allocation actions
   addTargetAllocation: (allocation: Omit<TargetAllocation, 'id' | 'createdAt' | 'updatedAt'>) => ActionResult<TargetAllocation>;
@@ -272,6 +273,83 @@ interface AppState {
 
 const getNow = () => new Date().toISOString();
 
+type TradeRollbackState = Pick<AppState, 'accounts' | 'positions' | 'trades' | 'lots' | 'economicEvents'>;
+
+function rollbackLatestTrade(state: TradeRollbackState, tradeId: string): { success: true; state: TradeRollbackState; trade: Trade } | { success: false; error: string } {
+  const trade = state.trades.find((item) => item.id === tradeId);
+  if (!trade) return { success: false, error: `Trade with id ${tradeId} not found` };
+  const tradeTime = new Date(trade.executedAt).getTime();
+  const laterRelatedTrade = state.trades.some((item) => item.id !== trade.id
+    && item.accountId === trade.accountId && item.symbol === trade.symbol && item.assetType === trade.assetType
+    && (new Date(item.executedAt).getTime() > tradeTime || (item.executedAt === trade.executedAt && item.createdAt > trade.createdAt)));
+  if (laterRelatedTrade) return { success: false, error: '只能编辑或删除该持仓的最新一笔交易，请先处理后续交易。' };
+
+  const account = state.accounts.find((item) => item.id === trade.accountId);
+  if (!account) return { success: false, error: '交易关联账户不存在，无法安全回滚。' };
+  const currentPosition = state.positions.find((item) => item.accountId === trade.accountId && item.symbol === trade.symbol && item.assetType === trade.assetType);
+  const positionId = trade.positionId || currentPosition?.id;
+  if (!positionId) return { success: false, error: '旧交易缺少持仓关联，无法安全回滚。请保留记录并通过账户调整修正。' };
+
+  let positions = [...state.positions];
+  let lots = [...state.lots];
+  let balance = account.balance;
+
+  if (trade.type === 'buy') {
+    if (!currentPosition || currentPosition.quantity < trade.quantity) return { success: false, error: '当前持仓不足以撤销这笔买入，可能存在手工修改。' };
+    const linkedIndex = lots.findIndex((lot) => lot.sourceTradeId === trade.id);
+    const fallbackIndex = [...lots].map((lot, index) => ({ lot, index })).reverse().find(({ lot }) => lot.positionId === positionId
+      && lot.executedAt === trade.executedAt && lot.quantity === trade.quantity && lot.price === trade.price)?.index ?? -1;
+    const lotIndex = linkedIndex >= 0 ? linkedIndex : fallbackIndex;
+    if (lotIndex < 0) return { success: false, error: '找不到该买入对应的批次，无法安全回滚。' };
+    balance = roundCurrency(balance + trade.total + trade.fees);
+    const newQuantity = roundQuantity(currentPosition.quantity - trade.quantity);
+    if (newQuantity <= 0) positions = positions.filter((item) => item.id !== currentPosition.id);
+    else {
+      const previousCost = currentPosition.avgCost * currentPosition.quantity - trade.total;
+      positions = positions.map((item) => item.id === currentPosition.id
+        ? { ...item, quantity: newQuantity, avgCost: roundPrice(previousCost / newQuantity), updatedAt: getNow() }
+        : item);
+    }
+    lots = lots.filter((_, index) => index !== lotIndex);
+  } else {
+    balance = roundCurrency(balance - (trade.total - trade.fees));
+    let quantityToRestore = roundQuantity(trade.quantity);
+    const candidates = lots.map((lot, index) => ({ lot, index }))
+      .filter(({ lot }) => lot.positionId === positionId)
+      .sort((a, b) => new Date(b.lot.executedAt).getTime() - new Date(a.lot.executedAt).getTime());
+    for (const { lot, index } of candidates) {
+      if (quantityToRestore <= 0) break;
+      const restored = Math.min(roundQuantity(lot.quantity - lot.remainingQuantity), quantityToRestore);
+      if (restored <= 0) continue;
+      lots[index] = { ...lot, remainingQuantity: roundQuantity(lot.remainingQuantity + restored), deletedAt: undefined };
+      quantityToRestore = roundQuantity(quantityToRestore - restored);
+    }
+    if (quantityToRestore > 0) return { success: false, error: '买入批次不足，无法安全回滚这笔卖出。' };
+    const restoredLots = lots.filter((lot) => lot.positionId === positionId && lot.remainingQuantity > 0);
+    const restoredQuantity = roundQuantity(restoredLots.reduce((sum, lot) => sum + lot.remainingQuantity, 0));
+    const restoredAvgCost = restoredQuantity > 0 ? roundPrice(restoredLots.reduce((sum, lot) => sum + lot.remainingQuantity * lot.price, 0) / restoredQuantity) : trade.price;
+    if (currentPosition) {
+      positions = positions.map((item) => item.id === currentPosition.id ? { ...item, quantity: roundQuantity(item.quantity + trade.quantity), updatedAt: getNow() } : item);
+    } else {
+      const price = roundPrice(trade.price);
+      const now = new Date();
+      positions.push({
+        id: positionId, accountId: trade.accountId, assetType: trade.assetType, symbol: trade.symbol, name: trade.name,
+        quantity: restoredQuantity, avgCost: restoredAvgCost, currentPrice: price,
+        dailyBasePrice: price, monthlyBasePrice: price, yearlyBasePrice: price,
+        dailyBaseDate: getBusinessDate(now), monthlyBaseMonth: getBusinessMonth(now), yearlyBaseYear: getBusinessYear(now),
+        createdAt: restoredLots[0]?.createdAt || getNow(), updatedAt: getNow(),
+      });
+    }
+  }
+
+  return { success: true, trade, state: {
+    accounts: state.accounts.map((item) => item.id === account.id ? { ...item, balance, updatedAt: getNow() } : item),
+    positions, lots, trades: state.trades.filter((item) => item.id !== trade.id),
+    economicEvents: state.economicEvents.filter((event) => event.id !== trade.id),
+  } };
+}
+
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -285,6 +363,7 @@ export const useAppStore = create<AppState>()(
   lots: [],
   priceSnapshots: [],
   economicEvents: [],
+  cashAdjustments: [],
   _hasLoadedFromCloud: false,
   _lastSyncedAt: null,
   _lastCloudUpdatedAt: null,
@@ -293,16 +372,18 @@ export const useAppStore = create<AppState>()(
   _syncError: null,
   _pendingCloudData: null,
   _pendingCloudUpdatedAt: null,
+  _pendingCloudMeta: null,
+  _cloudMeta: null,
 
   resolveSyncConflict: async (choice) => {
     const state = get();
     if (choice === 'cloud' && state._pendingCloudData) {
       const d = state._pendingCloudData;
-      set({ accounts: d.accounts || [], positions: d.positions || [], snapshots: d.snapshots || [], trades: d.trades || [], transfers: d.transfers || [], targetAllocations: d.targetAllocations || [], lots: d.lots || [], priceSnapshots: d.priceSnapshots || [], economicEvents: d.economicEvents || [], _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null, _lastCloudUpdatedAt: state._pendingCloudUpdatedAt, _pendingCloudData: null, _pendingCloudUpdatedAt: null });
+      set({ accounts: d.accounts || [], positions: d.positions || [], snapshots: d.snapshots || [], trades: d.trades || [], transfers: d.transfers || [], targetAllocations: d.targetAllocations || [], lots: d.lots || [], priceSnapshots: d.priceSnapshots || [], economicEvents: d.economicEvents || [], cashAdjustments: d.cashAdjustments || [], _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null, _lastCloudUpdatedAt: state._pendingCloudUpdatedAt, _cloudMeta: state._pendingCloudMeta, _pendingCloudData: null, _pendingCloudUpdatedAt: null, _pendingCloudMeta: null });
       return true;
     }
     if (choice === 'local') {
-      set({ _pendingCloudData: null, _pendingCloudUpdatedAt: null });
+      set({ _pendingCloudData: null, _pendingCloudUpdatedAt: null, _pendingCloudMeta: null });
       return get().forceSyncNow();
     }
     return false;
@@ -311,15 +392,8 @@ export const useAppStore = create<AppState>()(
   // Cloud sync
   syncToCloud: async () => {
     const state = get();
-    const data = {
-      accounts: state.accounts,
-      positions: state.positions,
-      snapshots: state.snapshots,
-      trades: state.trades,
-      transfers: state.transfers,
-      targetAllocations: state.targetAllocations,
-      lots: state.lots,
-    };
+    const data = serializeStoreState(state);
+    const nextMeta = advanceSyncMeta(state._cloudMeta);
 
     // Debounce sync - wait 1 second after last change
     if (syncTimer) {
@@ -328,9 +402,9 @@ export const useAppStore = create<AppState>()(
 
     return new Promise((resolve) => {
       syncTimer = setTimeout(async () => {
-        const success = await cloudSyncToCloud(data);
+        const success = await cloudSyncToCloud(data, nextMeta);
         if (success) {
-          set({ _lastSyncedAt: new Date().toISOString() });
+          set({ _lastSyncedAt: new Date().toISOString(), _cloudMeta: nextMeta, _hasUnsyncedChanges: false, _syncStatus: 'synced' });
         }
         resolve(success);
       }, 1000);
@@ -345,19 +419,12 @@ export const useAppStore = create<AppState>()(
     }
     set({ _syncStatus: 'syncing', _syncError: null });
     const state = get();
-    const data = {
-      accounts: state.accounts,
-      positions: state.positions,
-      snapshots: state.snapshots,
-      trades: state.trades,
-      transfers: state.transfers,
-      targetAllocations: state.targetAllocations,
-      lots: state.lots,
-    };
-    const success = await cloudSyncToCloud(data);
+    const data = serializeStoreState(state);
+    const nextMeta = advanceSyncMeta(state._cloudMeta);
+    const success = await cloudSyncToCloud(data, nextMeta);
     if (success) {
       const now = new Date().toISOString();
-      set({ _lastSyncedAt: now, _lastCloudUpdatedAt: now, _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null });
+      set({ _lastSyncedAt: now, _lastCloudUpdatedAt: now, _cloudMeta: nextMeta, _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null });
     } else {
       set({ _hasUnsyncedChanges: true, _syncStatus: 'error', _syncError: '同步失败，本地数据已保留，可稍后重试。' });
     }
@@ -372,15 +439,17 @@ export const useAppStore = create<AppState>()(
       const state = get();
       const cloudChanged = Boolean(cloudData.updatedAt && state._lastCloudUpdatedAt && cloudData.updatedAt !== state._lastCloudUpdatedAt);
       if (state._hasUnsyncedChanges && cloudChanged) {
-        set({ _hasLoadedFromCloud: true, _syncStatus: 'conflict', _syncError: '云端和本地都有新改动，请选择保留版本。', _pendingCloudData: cloudData.data, _pendingCloudUpdatedAt: cloudData.updatedAt });
+        set({ _hasLoadedFromCloud: true, _syncStatus: 'conflict', _syncError: '云端和本地都有新改动，请选择保留版本。', _pendingCloudData: cloudData.data, _pendingCloudUpdatedAt: cloudData.updatedAt, _pendingCloudMeta: cloudData.meta || null });
         return false;
       }
       const payload = cloudData.data;
       set({
         accounts: payload.accounts || [], positions: payload.positions || [], snapshots: payload.snapshots || [], trades: payload.trades || [],
         transfers: payload.transfers || [], targetAllocations: payload.targetAllocations || [], lots: payload.lots || [],
+        priceSnapshots: payload.priceSnapshots || [], economicEvents: payload.economicEvents || [], cashAdjustments: payload.cashAdjustments || [],
         _hasLoadedFromCloud: true, _lastSyncedAt: new Date().toISOString(), _lastCloudUpdatedAt: cloudData.updatedAt,
         _hasUnsyncedChanges: false, _syncStatus: 'synced', _syncError: null,
+        _cloudMeta: cloudData.meta || null,
       });
       // Migration: backfill lots for positions loaded from cloud that have no lots
       setTimeout(() => {
@@ -445,15 +514,18 @@ export const useAppStore = create<AppState>()(
   },
 
   deleteAccount: (id) => {
-    const exists = get().accounts.some((a) => a.id === id);
+    const state = get();
+    const exists = state.accounts.some((a) => a.id === id);
     if (!exists) {
       return { success: false, error: `Account with id ${id} not found` };
     }
-    set((state) => ({
-      accounts: state.accounts.filter((a) => a.id !== id),
-      positions: state.positions.filter((p) => p.accountId !== id),
-      trades: state.trades.filter((t) => t.accountId !== id),
-    }));
+    const relatedPositions = state.positions.filter((position) => position.accountId === id).length;
+    const relatedTrades = state.trades.filter((trade) => trade.accountId === id).length;
+    const relatedTransfers = state.transfers.filter((transfer) => transfer.fromAccountId === id || transfer.toAccountId === id).length;
+    if (relatedPositions || relatedTrades || relatedTransfers) {
+      return { success: false, error: `账户仍有关联数据（持仓 ${relatedPositions}、交易 ${relatedTrades}、转账 ${relatedTransfers}），请先处理关联记录。` };
+    }
+    set((current) => ({ accounts: current.accounts.filter((account) => account.id !== id) }));
     scheduleCloudSync();
     return { success: true, data: id };
   },
@@ -569,12 +641,19 @@ export const useAppStore = create<AppState>()(
   },
 
   deletePosition: (id) => {
-    const exists = get().positions.some((p) => p.id === id);
-    if (!exists) {
+    const state = get();
+    const position = state.positions.find((item) => item.id === id);
+    if (!position) {
       return { success: false, error: `Position with id ${id} not found` };
     }
-    set((state) => ({
-      positions: state.positions.filter((p) => p.id !== id),
+    const relatedTrades = state.trades.filter((trade) => trade.positionId === id
+      || (trade.accountId === position.accountId && trade.symbol === position.symbol && trade.assetType === position.assetType));
+    if (relatedTrades.length > 0) {
+      return { success: false, error: `该持仓关联 ${relatedTrades.length} 笔交易，请通过交易回滚清仓，不能直接删除。` };
+    }
+    set((current) => ({
+      positions: current.positions.filter((item) => item.id !== id),
+      lots: current.lots.filter((lot) => lot.positionId !== id),
     }));
     scheduleCloudSync();
     return { success: true, data: id };
@@ -643,7 +722,7 @@ export const useAppStore = create<AppState>()(
   },
 
   executeTrade: (tradeData) => {
-    const { accounts, positions, lots } = get();
+    const { accounts, positions } = get();
 
     // Get account
     const account = accounts.find((a) => a.id === tradeData.accountId);
@@ -712,6 +791,7 @@ export const useAppStore = create<AppState>()(
         );
 
         if (existingPosition) {
+          newTrade.positionId = existingPosition.id;
           // Update position: recalculate average cost
           const newQuantity = roundQuantity(existingPosition.quantity + tradeData.quantity);
           const newTotalCost = roundPrice((existingPosition.avgCost * existingPosition.quantity) + tradeData.total);
@@ -740,6 +820,7 @@ export const useAppStore = create<AppState>()(
             fees: roundCurrency(tradeData.fees),
             executedAt: tradeData.executedAt,
             createdAt: getNow(),
+            sourceTradeId: newTrade.id,
           };
           newLots.push(newLot);
         } else {
@@ -766,6 +847,7 @@ export const useAppStore = create<AppState>()(
           };
           newPositions.push(newPos);
           updatedPosition = newPos;
+          newTrade.positionId = newPos.id;
 
           // Create a new buy lot
           const newLot: Lot = {
@@ -777,6 +859,7 @@ export const useAppStore = create<AppState>()(
             fees: roundCurrency(tradeData.fees),
             executedAt: tradeData.executedAt,
             createdAt: getNow(),
+            sourceTradeId: newTrade.id,
           };
           newLots.push(newLot);
         }
@@ -798,6 +881,7 @@ export const useAppStore = create<AppState>()(
         );
 
         if (existingPosition) {
+          newTrade.positionId = existingPosition.id;
           // FIFO sell: reduce lots in chronological order
           let remainingToSell = roundQuantity(tradeData.quantity);
           newLots = newLots.map((lot) => {
@@ -859,6 +943,7 @@ export const useAppStore = create<AppState>()(
           status: 'posted',
           idempotencyKey: newTrade.id,
           accountId: tradeData.accountId,
+          positionId: newTrade.positionId,
           symbol: tradeData.symbol,
           assetType: tradeData.assetType,
           quantity: createQuantity(tradeData.quantity),
@@ -879,31 +964,26 @@ export const useAppStore = create<AppState>()(
   },
 
   updateTrade: (id, updates) => {
-    const trade = get().trades.find((t) => t.id === id);
-    if (!trade) {
-      return { success: false, error: `Trade with id ${id} not found` };
+    const originalState = get();
+    const rollback = rollbackLatestTrade(originalState, id);
+    if (!rollback.success) return { success: false, error: rollback.error };
+    set(rollback.state);
+    const replacement = get().executeTrade({ ...rollback.trade, ...updates });
+    if (!replacement.success || !replacement.trade) {
+      set({
+        accounts: originalState.accounts, positions: originalState.positions, trades: originalState.trades,
+        lots: originalState.lots, economicEvents: originalState.economicEvents,
+      });
+      return { success: false, error: replacement.error || '更新交易失败，原交易已保留。' };
     }
-    const updatedTrade: Trade = {
-      ...trade,
-      ...updates,
-    };
-    set((state) => ({
-      trades: state.trades
-        .map((t) => (t.id === id ? updatedTrade : t))
-        .sort((a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime()),
-    }));
     scheduleCloudSync();
-    return { success: true, data: updatedTrade };
+    return { success: true, data: replacement.trade };
   },
 
   deleteTrade: (id) => {
-    const exists = get().trades.some((t) => t.id === id);
-    if (!exists) {
-      return { success: false, error: `Trade with id ${id} not found` };
-    }
-    set((state) => ({
-      trades: state.trades.filter((t) => t.id !== id),
-    }));
+    const rollback = rollbackLatestTrade(get(), id);
+    if (!rollback.success) return { success: false, error: rollback.error };
+    set(rollback.state);
     scheduleCloudSync();
     return { success: true, data: id };
   },
@@ -1006,6 +1086,45 @@ export const useAppStore = create<AppState>()(
       }),
     }));
 
+    scheduleCloudSync();
+    return { success: true, data: id };
+  },
+
+  addCashAdjustment: (adjustmentData) => {
+    const account = get().accounts.find((item) => item.id === adjustmentData.accountId);
+    if (!account) return { success: false, error: '账户不存在' };
+    if (!Number.isFinite(adjustmentData.amount) || adjustmentData.amount <= 0) return { success: false, error: '金额必须大于 0' };
+    const income = adjustmentData.category === 'dividend' || adjustmentData.category === 'interest';
+    const signedAmount = income ? adjustmentData.amount : -adjustmentData.amount;
+    if (!income && account.balance < adjustmentData.amount) return { success: false, error: '账户余额不足' };
+    const adjustment: CashAdjustment = { ...adjustmentData, id: uuidv4(), createdAt: getNow() };
+    set((state) => ({
+      cashAdjustments: [...state.cashAdjustments, adjustment].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)),
+      accounts: state.accounts.map((item) => item.id === account.id ? { ...item, balance: roundCurrency(item.balance + signedAmount), updatedAt: getNow() } : item),
+      economicEvents: [...state.economicEvents, createCashEvent({
+        id: adjustment.id,
+        accountId: adjustment.accountId,
+        amount: signedAmount,
+        currency: normalizeCurrency(adjustment.currency),
+        type: 'manual_balance_adjustment',
+        occurredAt: adjustment.occurredAt,
+        metadata: { category: adjustment.category, symbol: adjustment.symbol, note: adjustment.note },
+      })],
+    }));
+    scheduleCloudSync();
+    return { success: true, data: adjustment };
+  },
+
+  deleteCashAdjustment: (id) => {
+    const adjustment = get().cashAdjustments.find((item) => item.id === id);
+    if (!adjustment) return { success: false, error: '收益或费用记录不存在' };
+    const income = adjustment.category === 'dividend' || adjustment.category === 'interest';
+    const reversal = income ? -adjustment.amount : adjustment.amount;
+    set((state) => ({
+      cashAdjustments: state.cashAdjustments.filter((item) => item.id !== id),
+      accounts: state.accounts.map((item) => item.id === adjustment.accountId ? { ...item, balance: roundCurrency(item.balance + reversal), updatedAt: getNow() } : item),
+      economicEvents: state.economicEvents.filter((event) => event.id !== id),
+    }));
     scheduleCloudSync();
     return { success: true, data: id };
   },
@@ -1138,8 +1257,10 @@ export const useAppStore = create<AppState>()(
       lots: [],
       priceSnapshots: [],
       economicEvents: [],
+      cashAdjustments: [],
       _hasLoadedFromCloud: false,
       _lastSyncedAt: null,
+      _cloudMeta: null,
     });
   },
 
@@ -1150,13 +1271,7 @@ export const useAppStore = create<AppState>()(
       version: 1,
       exportedAt: new Date().toISOString(),
       data: {
-        accounts: state.accounts,
-        positions: state.positions,
-        snapshots: state.snapshots,
-        trades: state.trades,
-        transfers: state.transfers,
-        targetAllocations: state.targetAllocations,
-        lots: state.lots,
+        ...serializeStoreState(state),
       },
     };
     return JSON.stringify(exportObj, null, 2);
@@ -1167,10 +1282,9 @@ export const useAppStore = create<AppState>()(
     try {
       const parsed = JSON.parse(jsonString);
       
-      // Validate structure
-      if (!parsed.data || typeof parsed.data !== 'object') {
-        return { success: false, message: '无效的数据格式' };
-      }
+      const validation = validateCloudSyncData(parsed.data);
+      if (!validation.ok) return { success: false, message: `数据校验失败：${validation.error}` };
+      parsed.data = validation.data;
 
       const { accounts = [], positions = [], snapshots = [], trades = [], targetAllocations = [] } = parsed.data;
 
@@ -1179,6 +1293,19 @@ export const useAppStore = create<AppState>()(
           !Array.isArray(snapshots) || !Array.isArray(trades)) {
         return { success: false, message: '数据格式错误：缺少必需字段' };
       }
+
+      const importedLots: Lot[] = Array.isArray(parsed.data.lots) && parsed.data.lots.length > 0
+        ? parsed.data.lots
+        : positions.map((position: Position) => ({
+            id: uuidv4(),
+            positionId: position.id,
+            quantity: position.quantity,
+            remainingQuantity: position.quantity,
+            price: position.avgCost,
+            fees: 0,
+            executedAt: position.buyDate ? new Date(position.buyDate).toISOString() : position.createdAt,
+            createdAt: getNow(),
+          }));
 
       // Import data
       set({
@@ -1191,8 +1318,11 @@ export const useAppStore = create<AppState>()(
           (a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime()
         ),
         transfers: Array.isArray(parsed.data.transfers) ? parsed.data.transfers : [],
-        lots: Array.isArray(parsed.data.lots) ? parsed.data.lots : [],
-        targetAllocations,
+        lots: importedLots,
+        targetAllocations: Array.isArray(targetAllocations) ? targetAllocations : [],
+        priceSnapshots: Array.isArray(parsed.data.priceSnapshots) ? parsed.data.priceSnapshots : [],
+        economicEvents: Array.isArray(parsed.data.economicEvents) ? parsed.data.economicEvents : [],
+        cashAdjustments: Array.isArray(parsed.data.cashAdjustments) ? parsed.data.cashAdjustments : [],
         _hasUnsyncedChanges: true,
         _syncStatus: 'dirty',
         _syncError: null,
@@ -1204,7 +1334,7 @@ export const useAppStore = create<AppState>()(
         success: true, 
         message: `成功导入：${accounts.length} 个账户，${positions.length} 笔持仓，${snapshots.length} 个快照，${trades.length} 笔交易` 
       };
-    } catch (error) {
+    } catch {
       return { success: false, message: 'JSON 解析失败，请检查文件格式' };
     }
   },
@@ -1225,7 +1355,9 @@ export const useAppStore = create<AppState>()(
         _hasUnsyncedChanges: state._hasUnsyncedChanges,
         _syncStatus: state._syncStatus,
         _syncError: state._syncError,
+        _cloudMeta: state._cloudMeta,
         economicEvents: state.economicEvents,
+        cashAdjustments: state.cashAdjustments,
       }),
       onRehydrateStorage: () => (state) => {
         // 数据从 localStorage 恢复后，在下一个事件循环中加载云端数据
@@ -1233,7 +1365,7 @@ export const useAppStore = create<AppState>()(
         if (state && typeof window !== 'undefined') {
           setTimeout(async () => {
             console.log('[CloudSync] Loading from cloud after hydration...');
-            await loadFromCloudData(state);
+            await loadFromCloudData();
           }, 0);
         }
         // Migration: backfill lots for existing positions that have no lots
@@ -1275,7 +1407,7 @@ export function initializeCloudSync() {
   cloudInitPromise = (async () => {
     // 等待一小段时间确保 hydration 完成
     await new Promise(resolve => setTimeout(resolve, 100));
-    await loadFromCloudData(useAppStore.getState());
+    await loadFromCloudData();
   })();
 
   return cloudInitPromise;

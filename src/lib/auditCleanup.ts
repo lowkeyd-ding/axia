@@ -1,6 +1,6 @@
 import type { Account, Position, Snapshot, Trade, Transfer, PriceSnapshot } from '@/types';
 import type { FxRates } from '@/lib/fx';
-import { auditDirtyHoldings, auditDirtyMonths, auditDirtyTrades, buildDirtyAuditReport } from '@/lib/dirtyAudit';
+import { buildDirtyAuditReport } from '@/lib/dirtyAudit';
 import { buildMonthEndSnapshot, buildMissingMonthEndSnapshots, listMonthEndDates } from '@/lib/monthEndSnapshots';
 
 export interface CleanupResult {

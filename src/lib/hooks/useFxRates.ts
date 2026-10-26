@@ -36,7 +36,13 @@ export function useFxRates() {
   }, []);
 
   useEffect(() => {
-    load();
+    let active = true;
+    getFxRates().then((nextRates) => {
+      if (!active) return;
+      setRates(nextRates);
+      setLoading(false);
+    });
+    return () => { active = false; };
   }, [load]);
 
   return { rates, loading, refresh: load };

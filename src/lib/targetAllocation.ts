@@ -19,6 +19,11 @@ export interface AllocationDeviation {
   status: '高于目标' | '低于目标' | '接近目标';
 }
 
+export interface RebalanceRecommendation extends AllocationDeviation {
+  amount: number;
+  action: '买入' | '卖出' | '保持';
+}
+
 export function validateTargetAllocation(allocation: Pick<TargetAllocation, 'name' | 'allocations'>): string | null {
   if (!allocation.name.trim()) return '请输入目标配置名称。';
   let total = 0;
@@ -72,4 +77,20 @@ export function formatAllocationDeviation(deviation: AllocationDeviation): strin
   if (deviation.status === '高于目标') return `高于目标 ${diff}%`;
   if (deviation.status === '低于目标') return `低于目标 ${diff}%`;
   return '偏离较大';
+}
+
+export function calculateRebalanceRecommendations(
+  current: Partial<Record<AllocationCategory, number>>,
+  allocation: TargetAllocation,
+  totalValue: number,
+  tolerancePercentage = 1
+): RebalanceRecommendation[] {
+  if (!Number.isFinite(totalValue) || totalValue <= 0) return [];
+  return calculateAllocationDeviations(current, allocation).map((deviation) => {
+    const amount = (Math.abs(deviation.deviation) / 100) * totalValue;
+    const action = Math.abs(deviation.deviation) <= tolerancePercentage
+      ? '保持'
+      : deviation.deviation > 0 ? '卖出' : '买入';
+    return { ...deviation, amount, action };
+  });
 }

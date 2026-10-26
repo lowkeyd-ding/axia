@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  calculateRebalanceRecommendations,
   validateTargetAllocation,
   calculateAllocationDeviations,
   validateAllocationRows,
@@ -68,5 +69,15 @@ describe('calculateAllocationDeviations', () => {
     const cash = list.find((x) => x.category === 'cash');
     expect(cash?.currentPercentage).toBe(0);
     expect(cash?.deviation).toBe(-20);
+  });
+
+  it('turns allocation gaps into actionable rebalance amounts', () => {
+    const recommendations = calculateRebalanceRecommendations(
+      { stock: 50, fund: 20, cash: 20, bank_wealth_management: 10 },
+      sample,
+      100000
+    );
+    expect(recommendations.find((item) => item.category === 'stock')).toMatchObject({ action: '卖出', amount: 10000 });
+    expect(recommendations.find((item) => item.category === 'fund')).toMatchObject({ action: '买入', amount: 10000 });
   });
 });

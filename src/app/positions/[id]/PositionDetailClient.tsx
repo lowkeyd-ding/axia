@@ -5,8 +5,8 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAppStore } from '@/lib/store';
 import { getPrice } from '@/lib/priceApi';
-import { ASSET_TYPE_CONFIG, type Account, type AssetType, type Lot } from '@/types';
-import { formatCurrency, formatDualCurrency, formatPercent } from '@/utils/format';
+import { ASSET_TYPE_CONFIG, type Account, type AssetType } from '@/types';
+import { formatDualCurrency, formatPercent } from '@/utils/format';
 import { positionFeeSummary } from '@/lib/tradeFees';
 
 const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {

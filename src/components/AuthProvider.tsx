@@ -5,7 +5,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { User, Session } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 import { useAppStore } from '@/lib/store';
-import { syncToCloudForUser } from '@/lib/sync';
+import { advanceSyncMeta, syncToCloudForUser } from '@/lib/sync';
+import { serializeStoreState } from '@/lib/storeSerialization';
 
 // 注：Vercel 在 /auth/* 路径下有项目级 redirect 循环，故改用 /signin、/signup 等前缀
 const AUTH_PATHS = new Set([
@@ -102,16 +103,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (currentUser?.id) {
         const state = useAppStore.getState();
         await syncToCloudForUser(
-          {
-            accounts: state.accounts,
-            positions: state.positions,
-            snapshots: state.snapshots,
-            trades: state.trades,
-            transfers: state.transfers,
-            targetAllocations: state.targetAllocations,
-            lots: state.lots,
-          },
-          currentUser.id
+          serializeStoreState(state),
+          currentUser.id,
+          advanceSyncMeta(state._cloudMeta)
         );
       }
     } catch {

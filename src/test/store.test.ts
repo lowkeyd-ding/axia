@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useAppStore } from '@/lib/store';
-import type { Account, Position, Snapshot, Trade } from '@/types';
+import type { Account, Position } from '@/types';
 
 describe('useAppStore - Accounts', () => {
   beforeEach(() => {
@@ -60,7 +60,7 @@ describe('useAppStore - Accounts', () => {
     expect(result.error).toContain('not found');
   });
 
-  it('should delete an account and its positions/trades', () => {
+  it('should protect an account that still has positions or trades', () => {
     const { addAccount, addPosition, addTrade, deleteAccount } = useAppStore.getState();
 
     const accResult = addAccount({
@@ -97,12 +97,13 @@ describe('useAppStore - Accounts', () => {
     });
 
     const deleteResult = deleteAccount(accountId);
-    expect(deleteResult.success).toBe(true);
+    expect(deleteResult.success).toBe(false);
+    expect(deleteResult.error).toContain('关联数据');
 
     const { accounts, positions, trades } = useAppStore.getState();
-    expect(accounts.some((a) => a.id === accountId)).toBe(false);
-    expect(positions.some((p) => p.accountId === accountId)).toBe(false);
-    expect(trades.some((t) => t.accountId === accountId)).toBe(false);
+    expect(accounts.some((a) => a.id === accountId)).toBe(true);
+    expect(positions.some((p) => p.accountId === accountId)).toBe(true);
+    expect(trades.some((t) => t.accountId === accountId)).toBe(true);
   });
 
   it('should fail to delete non-existent account', () => {

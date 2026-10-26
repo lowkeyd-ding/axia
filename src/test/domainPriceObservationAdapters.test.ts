@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { priceDataToObservation } from '@/lib/domain/priceObservationAdapters';
+import type { PriceData } from '@/lib/priceApi';
 
 describe('price observation adapters', () => {
   it('maps price data to a valid observation', () => {
@@ -13,7 +14,7 @@ describe('price observation adapters', () => {
       dataTier: 'realtime',
       sourceLabel: 'Sina',
       name: '贵州茅台',
-    } as any, 'stock');
+    } as PriceData, 'stock');
 
     expect(observation.symbol).toBe('600519');
     expect(observation.status).toBe('valid');

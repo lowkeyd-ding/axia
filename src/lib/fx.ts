@@ -12,7 +12,7 @@
  * - 港股通结算汇率：深交所（browser fetch）→ Supabase 存储
  */
 
-import { DEFAULT_EXCHANGE_RATES, type ExchangeRates } from '@/config/exchangeRates';
+import { DEFAULT_EXCHANGE_RATES } from '@/config/exchangeRates';
 import { fetchSinaForexRates } from '@/lib/forexApi';
 import { getHkexSettlementRate } from '@/lib/hkexRateClient';
 import { fetchBocHkdSellRate } from '@/lib/bocRateClient';
@@ -57,7 +57,7 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 min
 export function getPreviousTradingDay(): string {
   const today = new Date();
   const day = today.getDay();
-  let offset = day === 1 ? 3 : day === 0 ? 2 : 1;
+  const offset = day === 1 ? 3 : day === 0 ? 2 : 1;
   const d = new Date(today);
   d.setDate(d.getDate() - offset);
   return d.toISOString().split('T')[0];

@@ -5,11 +5,11 @@ import { formatBusinessDateTime, getBusinessDate } from '@/lib/businessDate';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
-import { refreshPricesByType, getPrice, type PriceData } from '@/lib/priceApi';
+import { refreshPricesByType, getPrice } from '@/lib/priceApi';
 import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
 import type { Position, Account, AssetType } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
-import { formatCurrency, formatDualCurrency, formatNativeAmount, formatPercent } from '@/utils/format';
+import { formatDualCurrency, formatNativeAmount, formatPercent } from '@/utils/format';
 import { inferCurrencyFromSymbol } from '@/lib/fx';
 import { DEFAULT_PRICE_COLORS } from '@/config/colors';
 import { usePnLStats, computePositionPnLRaw } from '@/lib/hooks/usePnLStats';
@@ -88,7 +88,7 @@ function PositionsPageContent() {
   const suggestionRef = useRef<HTMLDivElement>(null);
   const symbolInputRef = useRef<HTMLInputElement>(null);
 
-  const appendHistoricalMonthEndSnapshots = useCallback((position: Position, accountCurrency: string) => {
+  const appendHistoricalMonthEndSnapshots = useCallback((position: Position) => {
     const startDate = position.buyDate ? position.buyDate.slice(0, 10) : position.createdAt.slice(0, 10);
     const existingDates = new Set(useAppStore.getState().snapshots.map((snapshot) => snapshot.date));
     const generated = buildMissingMonthEndSnapshots(
@@ -259,7 +259,7 @@ function PositionsPageContent() {
         setPriceUpdateToast({ success: successCount, failed: failedCount });
       }
     }
-  }, [positions, isRefreshing, updatePosition]);
+  }, [positions, isRefreshing, updatePosition, addPriceSnapshot]);
 
   // Refresh single position price
   const handleRefreshSingle = async (position: Position) => {
@@ -316,11 +316,6 @@ function PositionsPageContent() {
   const getAccountName = (accountId: string) => {
     const account = accounts.find((a) => a.id === accountId);
     return account?.name ?? '未知账户';
-  };
-
-  const getAccountCurrency = (accountId: string) => {
-    const account = accounts.find((a) => a.id === accountId);
-    return account?.currency ?? 'CNY';
   };
 
   const calculatePnL = (position: Position) => {
@@ -389,6 +384,9 @@ function PositionsPageContent() {
     const result = deletePosition(editingPosition.id);
     if (result.success) {
       handleClose();
+    } else {
+      setPriceUpdateToast({ success: 0, failed: 1 });
+      window.alert(result.error || '删除失败');
     }
   };
 
@@ -420,7 +418,7 @@ function PositionsPageContent() {
         buyDate: formData.buyDate || undefined,
       });
       if (result.success && result.data) {
-        appendHistoricalMonthEndSnapshots(result.data, formData.currency || 'CNY');
+        appendHistoricalMonthEndSnapshots(result.data);
       }
     }
 
@@ -592,7 +590,7 @@ function PositionsPageContent() {
         ) : (
           <div className="space-y-2">
             {filteredPositions.map((position) => {
-              const { pnlAmount, pnlPercent, currentValue, costBasis } = calculatePnL(position);
+              const { pnlAmount, pnlPercent } = calculatePnL(position);
               const currency = position.currency || inferCurrencyFromSymbol(position.symbol);
               const assetConfig = ASSET_TYPE_CONFIG[position.assetType];
               const pnlColor = getPnLColor(pnlAmount);

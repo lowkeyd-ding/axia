@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import { searchSymbols, type SymbolInfo } from '@/lib/symbolLookup';
-import type { Account, AssetType } from '@/types';
+import type { Account, AssetType, CashAdjustmentCategory } from '@/types';
 import { ASSET_TYPE_CONFIG } from '@/types';
 import { formatFeeDisplay, tradeCashWithFees } from '@/lib/tradeFees';
 import { formatCurrency } from '@/utils/format';
@@ -17,6 +17,7 @@ const ACCOUNT_TYPE_LABELS: Record<Account['type'], string> = {
 };
 
 const ASSET_TYPES: AssetType[] = ['stock', 'fund', 'bank_wealth_management', 'bank_cash'];
+const ADJUSTMENT_LABELS: Record<CashAdjustmentCategory, string> = { dividend: '股息', interest: '利息', tax: '税费', fee: '其他费用' };
 
 interface FormData {
   accountId: string;
@@ -45,19 +46,26 @@ const initialFormData: FormData = {
 export default function TradesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { trades, accounts, positions, executeTrade, updateTrade, deleteTrade } = useAppStore();
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const { trades, accounts, positions, cashAdjustments, executeTrade, updateTrade, deleteTrade, addCashAdjustment, deleteCashAdjustment } = useAppStore();
+  const startWithNewTrade = searchParams.get('new') === '1';
+  const [isModalOpen, setIsModalOpen] = useState(() => startWithNewTrade && accounts.length > 0);
   const [editingTradeId, setEditingTradeId] = useState<string | null>(null);
-  const [formData, setFormData] = useState<FormData>(initialFormData);
+  const [formData, setFormData] = useState<FormData>(() => startWithNewTrade && accounts.length > 0
+    ? { ...initialFormData, accountId: accounts[0].id }
+    : initialFormData);
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
   const [symbolSuggestions, setSymbolSuggestions] = useState<SymbolInfo[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [tradeResult, setTradeResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [tradeResult, setTradeResult] = useState<{ success: boolean; message: string } | null>(() => startWithNewTrade && accounts.length === 0
+    ? { success: false, message: '请先添加账户' }
+    : null);
   const [historyQuery, setHistoryQuery] = useState('');
   const [historyType, setHistoryType] = useState<'all' | 'buy' | 'sell'>('all');
   const [historyAccountId, setHistoryAccountId] = useState('all');
   const [historyPeriod, setHistoryPeriod] = useState<'all' | '30d' | '90d' | 'year'>('all');
   const [historySort, setHistorySort] = useState<'newest' | 'oldest'>('newest');
+  const [isAdjustmentOpen, setIsAdjustmentOpen] = useState(false);
+  const [adjustmentForm, setAdjustmentForm] = useState({ accountId: '', category: 'dividend' as CashAdjustmentCategory, amount: '', symbol: '', note: '', occurredAt: new Date().toISOString().slice(0, 16) });
   const suggestionRef = useRef<HTMLDivElement>(null);
 
   // Close suggestions when clicking outside
@@ -281,7 +289,7 @@ export default function TradesPage() {
   };
 
   const handleDeleteTrade = (tradeId: string) => {
-    if (!window.confirm('确定删除这条交易记录吗？删除后不会自动恢复账户余额和持仓，请确认数据已核对。')) return;
+    if (!window.confirm('确定删除这条交易记录吗？系统会同步回滚对应的账户余额、持仓和买入批次。')) return;
     const result = deleteTrade(tradeId);
     setTradeResult(result.success
       ? { success: true, message: '交易记录已删除' }
@@ -297,12 +305,6 @@ export default function TradesPage() {
     setFormData({ ...initialFormData, accountId: accounts[0].id, type });
     setIsModalOpen(true);
   };
-
-  useEffect(() => {
-    if (searchParams.get('new') === '1') {
-      openAddModal('buy');
-    }
-  }, [searchParams]);
 
   const isBankProduct = (type: AssetType) =>
     type === 'bank_wealth_management' || type === 'bank_cash';
@@ -352,6 +354,27 @@ export default function TradesPage() {
     setHistoryPeriod('all');
   };
 
+  const openAdjustment = () => {
+    if (accounts.length === 0) {
+      setTradeResult({ success: false, message: '请先添加账户' });
+      return;
+    }
+    setAdjustmentForm({ accountId: accounts[0].id, category: 'dividend', amount: '', symbol: '', note: '', occurredAt: new Date().toISOString().slice(0, 16) });
+    setIsAdjustmentOpen(true);
+  };
+
+  const submitAdjustment = () => {
+    const account = accounts.find((item) => item.id === adjustmentForm.accountId);
+    const amount = Number(adjustmentForm.amount);
+    if (!account || !Number.isFinite(amount) || amount <= 0 || !adjustmentForm.occurredAt) {
+      setTradeResult({ success: false, message: '请完整填写账户、金额和日期' });
+      return;
+    }
+    const result = addCashAdjustment({ accountId: account.id, category: adjustmentForm.category, amount, currency: account.currency, symbol: adjustmentForm.symbol.trim().toUpperCase() || undefined, note: adjustmentForm.note.trim() || undefined, occurredAt: new Date(adjustmentForm.occurredAt).toISOString() });
+    setTradeResult(result.success ? { success: true, message: '收益或费用已记录' } : { success: false, message: result.error || '记录失败' });
+    if (result.success) setIsAdjustmentOpen(false);
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-zinc-50 text-zinc-900">
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-zinc-200 shadow-sm">
@@ -364,6 +387,7 @@ export default function TradesPage() {
               </p>
             </div>
             <div className="flex gap-2">
+              <button onClick={openAdjustment} className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-sm font-medium">收益/费用</button>
               <button
                 onClick={() => openAddModal('buy')}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-600 border border-blue-200 rounded-lg text-sm font-medium transition-colors"
@@ -410,6 +434,17 @@ export default function TradesPage() {
       )}
 
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 space-y-5">
+        {cashAdjustments.length > 0 && (
+          <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between"><h2 className="font-medium text-zinc-900">股息、利息与费用</h2><span className="text-xs text-zinc-500">{cashAdjustments.length} 条</span></div>
+            <div className="mt-3 divide-y divide-zinc-100">
+              {cashAdjustments.slice(0, 8).map((item) => {
+                const income = item.category === 'dividend' || item.category === 'interest';
+                return <div key={item.id} className="flex items-center justify-between gap-3 py-3 text-sm"><div><p className="font-medium text-zinc-800">{ADJUSTMENT_LABELS[item.category]}{item.symbol ? ` · ${item.symbol}` : ''}</p><p className="text-xs text-zinc-500">{new Date(item.occurredAt).toLocaleDateString('zh-CN')} · {accounts.find((account) => account.id === item.accountId)?.name || '未知账户'}</p></div><div className="flex items-center gap-3"><span className={income ? 'text-red-500' : 'text-green-600'}>{income ? '+' : '-'}{formatCurrency(item.amount, item.currency)}</span><button onClick={() => { if (window.confirm('确定删除并回滚这条记录吗？')) deleteCashAdjustment(item.id); }} className="text-xs text-zinc-400 hover:text-red-500">删除</button></div></div>;
+              })}
+            </div>
+          </section>
+        )}
         {trades.length > 0 && (
           <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -873,6 +908,22 @@ export default function TradesPage() {
                 {editingTradeId ? '保存修改' : `确认${formData.type === 'buy' ? '买入' : '卖出'}`}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {isAdjustmentOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="记录收益或费用">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-semibold">记录收益或费用</h2>
+            <div className="mt-4 space-y-3">
+              <select value={adjustmentForm.accountId} onChange={(event) => setAdjustmentForm({ ...adjustmentForm, accountId: event.target.value })} className="w-full rounded-lg border border-zinc-300 px-3 py-2">{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select>
+              <select value={adjustmentForm.category} onChange={(event) => setAdjustmentForm({ ...adjustmentForm, category: event.target.value as CashAdjustmentCategory })} className="w-full rounded-lg border border-zinc-300 px-3 py-2">{Object.entries(ADJUSTMENT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+              <input type="number" min="0" step="0.01" value={adjustmentForm.amount} onChange={(event) => setAdjustmentForm({ ...adjustmentForm, amount: event.target.value })} placeholder="金额" className="w-full rounded-lg border border-zinc-300 px-3 py-2" />
+              <input value={adjustmentForm.symbol} onChange={(event) => setAdjustmentForm({ ...adjustmentForm, symbol: event.target.value })} placeholder="关联代码（可选）" className="w-full rounded-lg border border-zinc-300 px-3 py-2" />
+              <input type="datetime-local" value={adjustmentForm.occurredAt} onChange={(event) => setAdjustmentForm({ ...adjustmentForm, occurredAt: event.target.value })} className="w-full rounded-lg border border-zinc-300 px-3 py-2" />
+              <input value={adjustmentForm.note} onChange={(event) => setAdjustmentForm({ ...adjustmentForm, note: event.target.value })} placeholder="备注（可选）" className="w-full rounded-lg border border-zinc-300 px-3 py-2" />
+            </div>
+            <div className="mt-5 flex justify-end gap-2"><button onClick={() => setIsAdjustmentOpen(false)} className="px-4 py-2 text-zinc-600">取消</button><button onClick={submitAdjustment} className="rounded-lg bg-blue-600 px-4 py-2 text-white">保存</button></div>
           </div>
         </div>
       )}

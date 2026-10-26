@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createSyncPackage, summarizeSyncDiff } from '@/lib/sync';
+import { createSyncPackage, summarizeSyncDiff, unwrapCloudSyncPayload } from '@/lib/sync';
 
 describe('versioned sync', () => {
   it('creates a sync package with revision metadata', () => {
@@ -27,5 +27,26 @@ describe('versioned sync', () => {
 
     expect(summary.accounts.added).toBe(1);
     expect(summary.accounts.modified).toBe(1);
+  });
+
+  it('round-trips a versioned cloud payload without losing durable collections', () => {
+    const source = {
+      accounts: [], positions: [], snapshots: [], trades: [], transfers: [], targetAllocations: [], lots: [],
+      priceSnapshots: [{ id: 'price-1', symbol: '600519', assetType: 'stock' as const, date: '2026-10-26', price: 1500, currency: 'CNY', source: 'test', createdAt: '2026-10-26T00:00:00.000Z' }],
+      economicEvents: [],
+      cashAdjustments: [],
+    };
+    const pkg = createSyncPackage(source);
+
+    expect(unwrapCloudSyncPayload(pkg)).toEqual({ data: source, meta: pkg.meta });
+  });
+
+  it('loads legacy unversioned cloud data', () => {
+    const legacy = { accounts: [], positions: [], snapshots: [], trades: [], transfers: [], targetAllocations: [], lots: [] };
+    expect(unwrapCloudSyncPayload(legacy)).toEqual({ data: { ...legacy, priceSnapshots: [], economicEvents: [], cashAdjustments: [] }, meta: null });
+  });
+
+  it('rejects malformed cloud payloads', () => {
+    expect(unwrapCloudSyncPayload({ meta: {}, data: { accounts: [] } })).toBeNull();
   });
 });

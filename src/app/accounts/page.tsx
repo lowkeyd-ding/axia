@@ -5,8 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import type { Account } from '@/types';
 import * as XLSX from 'xlsx';
+import { convertExcelRows, type ExcelRow } from '@/lib/excelImport';
 import { useFxRates } from '@/lib/hooks/useFxRates';
-import { useAccountPnLStats, computeAccountPnLRaw, type PnLStats } from '@/lib/hooks/usePnLStats';
+import { computeAccountPnLRaw, type PnLStats } from '@/lib/hooks/usePnLStats';
 import { convertToAccountCNY, getEffectiveCurrency, inferCurrencyFromSymbol } from '@/lib/fx';
 import { formatCurrency, formatDualCurrency, formatNativeAmount } from '@/utils/format';
 import type { FxRates } from '@/lib/fx';
@@ -56,7 +57,7 @@ const initialFormData: FormData = {
 export default function AccountsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { accounts, positions, addAccount, updateAccount, deleteAccount, addTransfer, transfers, exportData, importData } = useAppStore();
+  const { accounts, positions, addAccount, updateAccount, deleteAccount, addTransfer, exportData, importData } = useAppStore();
   const { rates: fxRates } = useFxRates();
 
   // Compute account P&L stats (pure function, no hooks inside map)
@@ -68,7 +69,7 @@ export default function AccountsPage() {
     return result;
   }, [accounts, positions, fxRates]);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(() => searchParams.get('new') === '1');
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [formData, setFormData] = useState<FormData>(initialFormData);
@@ -190,7 +191,7 @@ export default function AccountsPage() {
   const handleDeleteAccount = (accountId: string, accountName: string) => {
     const accountPositions = positions.filter(p => p.accountId === accountId);
     const confirmMessage = accountPositions.length > 0
-      ? `确定要删除账户"${accountName}"吗？\n该账户下有 ${accountPositions.length} 个持仓，删除账户将同时删除所有关联持仓。`
+      ? `账户“${accountName}”仍有 ${accountPositions.length} 个持仓，系统会阻止删除并保留历史数据。是否继续检查？`
       : `确定要删除账户"${accountName}"吗？`;
 
     if (confirm(confirmMessage)) {
@@ -270,10 +271,6 @@ export default function AccountsPage() {
     }
   }, [toast]);
 
-  const formatByCurrency = (value: number, currency: string) => {
-    return formatCurrency(value, currency);
-  };
-
   // Data export handler - exports to Excel with multiple sheets
   const handleExport = (format: 'excel' | 'json' = 'excel') => {
     const { accounts, positions, trades, transfers, snapshots } = useAppStore.getState();
@@ -299,6 +296,7 @@ export default function AccountsPage() {
     // 账户数据
     if (accounts.length > 0) {
       const accountsData = accounts.map(a => ({
+        '账户ID': a.id,
         '账户名称': a.name,
         '类型': ACCOUNT_TYPE_LABELS[a.type],
         '机构': a.institution || '',
@@ -315,6 +313,7 @@ export default function AccountsPage() {
     // 持仓数据
     if (positions.length > 0) {
       const positionsData = positions.map(p => ({
+        '持仓ID': p.id,
         '持仓名称': p.name,
         '代码': p.symbol,
         '类型': p.assetType,
@@ -322,6 +321,7 @@ export default function AccountsPage() {
         '成本价': p.avgCost,
         '当前价': p.currentPrice,
         '币种': p.currency || '',
+        '买入日期': p.buyDate || '',
         '所属账户ID': p.accountId,
         '创建时间': p.createdAt,
         '更新时间': p.updatedAt,
@@ -333,8 +333,11 @@ export default function AccountsPage() {
     // 交易记录
     if (trades.length > 0) {
       const tradesData = trades.map(t => ({
+        '交易ID': t.id,
+        '持仓ID': t.positionId || '',
         '时间': t.executedAt,
         '类型': t.type === 'buy' ? '买入' : '卖出',
+        '资产类型': t.assetType,
         '名称': t.name,
         '代码': t.symbol,
         '数量': t.quantity,
@@ -342,6 +345,7 @@ export default function AccountsPage() {
         '总额': t.total,
         '手续费': t.fees,
         '账户ID': t.accountId,
+        '创建时间': t.createdAt,
       }));
       const wsTrades = XLSX.utils.json_to_sheet(tradesData);
       XLSX.utils.book_append_sheet(wb, wsTrades, '交易记录');
@@ -350,9 +354,12 @@ export default function AccountsPage() {
     // 资金转账
     if (transfers.length > 0) {
       const transfersData = transfers.map(t => ({
+        '转账ID': t.id,
         '时间': t.createdAt,
         '转出账户': t.fromAccountId === 'external' ? '外部账户' : t.fromAccountId,
         '转入账户': t.toAccountId === 'external' ? '外部账户' : t.toAccountId,
+        '转出账户ID': t.fromAccountId,
+        '转入账户ID': t.toAccountId,
         '金额': t.amount,
         '币种': t.currency,
         '备注': t.note || '',
@@ -364,6 +371,7 @@ export default function AccountsPage() {
     // 快照记录
     if (snapshots.length > 0) {
       const snapshotsData = snapshots.map(s => ({
+        '快照ID': s.id,
         '日期': s.date,
         '总价值': s.totalValue,
         '现金': s.cash,
@@ -403,14 +411,15 @@ export default function AccountsPage() {
           // 读取各工作表数据
           // Excel 中每行数据是一个通用对象，结构取决于表头
           // 使用 unknown[] 然后在赋值时转换类型
-          let importedAccounts: Record<string, unknown>[] = [];
-          let importedPositions: Record<string, unknown>[] = [];
-          let importedTrades: Record<string, unknown>[] = [];
-          let importedTransfers: Record<string, unknown>[] = [];
+          let importedAccounts: ExcelRow[] = [];
+          let importedPositions: ExcelRow[] = [];
+          let importedTrades: ExcelRow[] = [];
+          let importedTransfers: ExcelRow[] = [];
+          let importedSnapshots: ExcelRow[] = [];
 
           wb.SheetNames.forEach(sheetName => {
             const ws = wb.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws);
+            const jsonData = XLSX.utils.sheet_to_json<ExcelRow>(ws);
 
             if (sheetName === '账户') {
               importedAccounts = jsonData;
@@ -420,18 +429,26 @@ export default function AccountsPage() {
               importedTrades = jsonData;
             } else if (sheetName === '资金转账') {
               importedTransfers = jsonData;
+            } else if (sheetName === '快照记录') {
+              importedSnapshots = jsonData;
             }
           });
 
-          // 转换并导入数据
+          const converted = convertExcelRows({
+            accounts: importedAccounts,
+            positions: importedPositions,
+            trades: importedTrades,
+            transfers: importedTransfers,
+            snapshots: importedSnapshots,
+          });
+
           const result = importData(JSON.stringify({
             data: {
-              accounts: importedAccounts,
-              positions: importedPositions,
-              trades: importedTrades,
-              transfers: importedTransfers,
-              snapshots: [],
+              ...converted,
               targetAllocations: [],
+              lots: [],
+              priceSnapshots: [],
+              economicEvents: [],
             }
           }));
 
@@ -441,7 +458,7 @@ export default function AccountsPage() {
           } else {
             setToast({ type: 'error', message: result.message });
           }
-        } catch (error) {
+        } catch {
           setToast({ type: 'error', message: '读取Excel文件失败' });
         }
       };
@@ -524,12 +541,6 @@ export default function AccountsPage() {
     const accountValueNative = acc.balance + getAccountPositions(acc.id).reduce((posSum, p) => posSum + p.currentPrice * p.quantity, 0);
     return sum + accountValueNative;
   }, 0);
-
-  useEffect(() => {
-    if (searchParams.get('new') === '1') {
-      setIsModalOpen(true);
-    }
-  }, [searchParams]);
 
   return (
     <div className="flex flex-col min-h-screen bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.06),transparent_24%),linear-gradient(to_bottom,#fafafa,#f8fafc)] text-zinc-900">

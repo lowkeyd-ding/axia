@@ -15,12 +15,6 @@ interface HistoricalNavItem {
   JZZZL?: string;
 }
 
-interface NetWorthTrendItem {
-  x: number;
-  y: number;
-  equityReturn?: number;
-}
-
 const MAX_SYMBOLS = 20;
 const REQUEST_TIMEOUT_MS = 8_000;
 const SYMBOL_PATTERN = /^\d{6}(?:\.OF)?$/i;

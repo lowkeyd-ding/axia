@@ -3,7 +3,6 @@ import {
   searchSymbols,
   getSymbolInfo,
   detectAssetType,
-  type SymbolInfo,
 } from '@/lib/symbolLookup';
 
 describe('symbolLookup - searchSymbols', () => {

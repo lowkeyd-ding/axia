@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/client';
-import type { Account, Position, Snapshot, Trade, Transfer, TargetAllocation, Lot, PriceSnapshot } from '@/types';
+import type { Account, CashAdjustment, Position, Snapshot, Trade, Transfer, TargetAllocation, Lot, PriceSnapshot } from '@/types';
 import type { EconomicEvent } from '@/lib/domain/events';
+import { validateCloudSyncData } from '@/lib/dataValidation';
 
 export interface CloudSyncMeta {
   schemaVersion: number;
@@ -19,6 +20,7 @@ export interface CloudSyncData {
   lots: Lot[];
   priceSnapshots?: PriceSnapshot[];
   economicEvents?: EconomicEvent[];
+  cashAdjustments?: CashAdjustment[];
 }
 
 export interface CloudSyncPackage {
@@ -57,6 +59,31 @@ export interface LocalSyncState {
   updatedAt: string;
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isCloudSyncMeta(value: unknown): value is CloudSyncMeta {
+  return isObject(value)
+    && typeof value.schemaVersion === 'number'
+    && typeof value.revision === 'number'
+    && typeof value.deviceId === 'string'
+    && typeof value.updatedAt === 'string';
+}
+
+/** Accept both legacy rows containing CloudSyncData and versioned rows containing { meta, data }. */
+export function unwrapCloudSyncPayload(value: unknown): { data: CloudSyncData; meta: CloudSyncMeta | null } | null {
+  const legacy = validateCloudSyncData(value);
+  if (legacy.ok) return { data: legacy.data, meta: null };
+  if (!isObject(value)) return null;
+  const versioned = validateCloudSyncData(value.data);
+  if (!versioned.ok) return null;
+  return {
+    data: versioned.data,
+    meta: isCloudSyncMeta(value.meta) ? value.meta : null,
+  };
+}
+
 function getSupabaseConfig(): { url: string; anonKey: string } | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -86,17 +113,27 @@ async function getAuthedClient(): Promise<{ client: ReturnType<typeof createClie
   return { client, userId: data.session.user.id };
 }
 
-function nextMeta(previous?: CloudSyncMeta | null): CloudSyncMeta {
+function getDeviceId(): string {
+  if (typeof window === 'undefined') return 'server-device';
+  const key = 'axia-device-id';
+  const existing = window.localStorage.getItem(key);
+  if (existing) return existing;
+  const created = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `device-${Date.now()}`;
+  window.localStorage.setItem(key, created);
+  return created;
+}
+
+export function advanceSyncMeta(previous?: CloudSyncMeta | null): CloudSyncMeta {
   return {
     schemaVersion: 1,
     revision: (previous?.revision || 0) + 1,
-    deviceId: previous?.deviceId || 'unknown-device',
+    deviceId: getDeviceId(),
     updatedAt: new Date().toISOString(),
   };
 }
 
 export function createSyncPackage(data: CloudSyncData, previous?: CloudSyncMeta | null): CloudSyncPackage {
-  return { meta: nextMeta(previous), data };
+  return { meta: advanceSyncMeta(previous), data };
 }
 
 function countObjects<T extends { id: string }>(items: T[]): Map<string, T> {
@@ -197,10 +234,15 @@ export async function loadFromCloud(): Promise<CloudSyncRecord | null> {
       .maybeSingle();
 
     if (error || !data) return null;
+    const payload = unwrapCloudSyncPayload(data.data);
+    if (!payload) {
+      console.error('[CloudSync] Invalid cloud payload');
+      return null;
+    }
     return {
-      data: data.data as CloudSyncData,
+      data: payload.data,
       updatedAt: typeof data.updated_at === 'string' ? data.updated_at : null,
-      meta: (data.data as CloudSyncPackage | undefined)?.meta || null,
+      meta: payload.meta,
     };
   } catch (error) {
     console.error('[CloudSync] Failed to load from cloud:', error);
@@ -217,9 +259,17 @@ async function upsertCloudData(userId: string, data: CloudSyncData, meta?: Cloud
 
   const client = createClient();
   const packageData: CloudSyncPackage = {
-    meta: meta || nextMeta(),
+    meta: meta || advanceSyncMeta(),
     data,
   };
+
+  const { data: existing, error: readError } = await client.from('axia_data').select('data').eq('user_id', userId).maybeSingle();
+  if (readError) return false;
+  const current = existing ? unwrapCloudSyncPayload(existing.data) : null;
+  if (meta && current?.meta && meta.revision !== current.meta.revision + 1) {
+    console.error('[CloudSync] Revision conflict detected');
+    return false;
+  }
 
   const { error } = await client.from('axia_data').upsert({
     user_id: userId,

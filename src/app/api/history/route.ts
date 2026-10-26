@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
+const MAX_SYMBOLS = 20;
+const MAX_RANGE_DAYS = 366 * 5;
+const REQUEST_TIMEOUT_MS = 8_000;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 interface EastmoneyKlineResponse {
   rc: number;
   data?: {
@@ -60,9 +65,19 @@ function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function inferMarket(symbol: string): 'cn' | 'hk' | 'us' | null {
   const upper = symbol.toUpperCase();
-  if (/^\d{6}$/.test(upper)) return 'cn';
+  if (/^\d{6}(?:\.(?:SH|SZ))?$/.test(upper)) return 'cn';
   if (/^\d{4,5}(?:\.HK)?$/.test(upper)) return 'hk';
   if (/^[A-Z][A-Z0-9.-]*$/.test(upper)) return 'us';
   return null;
@@ -74,7 +89,10 @@ function normalizeHkTicker(symbol: string): string {
 }
 
 async function fetchEastmoneyHistory(symbol: string, start: string, end: string): Promise<HistoryResult> {
-  const secid = symbol.startsWith('6') || symbol.startsWith('9') ? `1.${symbol}` : `0.${symbol}`;
+  const upper = symbol.toUpperCase();
+  const code = upper.replace(/\.(?:SH|SZ)$/, '');
+  const shanghai = upper.endsWith('.SH') || (!upper.endsWith('.SZ') && (code.startsWith('6') || code.startsWith('9')));
+  const secid = `${shanghai ? '1' : '0'}.${code}`;
   const url = new URL('https://push2his.eastmoney.com/api/qt/stock/kline/get');
   url.searchParams.set('secid', secid);
   url.searchParams.set('klt', '101');
@@ -85,7 +103,7 @@ async function fetchEastmoneyHistory(symbol: string, start: string, end: string)
   url.searchParams.set('fields1', 'f1,f2,f3,f4,f5,f6');
   url.searchParams.set('fields2', 'f51,f52,f53,f54,f55,f56,f57,f58');
 
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     headers: {
       Referer: 'https://quote.eastmoney.com/',
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -116,7 +134,7 @@ async function fetchEastmoneyHistory(symbol: string, start: string, end: string)
     .filter((point) => Number.isFinite(point.close) && point.close > 0 && point.date >= start && point.date <= end);
 
   return {
-    symbol: symbol.toUpperCase(),
+    symbol: upper,
     name: body.data?.name,
     currency: 'CNY',
     points,
@@ -136,7 +154,7 @@ async function fetchYahooHistory(symbol: string, start: string, end: string): Pr
   url.searchParams.set('period2', `${Math.floor(new Date(`${addDays(end, 1)}T00:00:00.000Z`).getTime() / 1000)}`);
   url.searchParams.set('events', 'div,splits');
 
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     headers: {
       Referer: 'https://finance.yahoo.com/',
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -194,6 +212,20 @@ export async function GET(request: NextRequest) {
 
   if (symbols.length === 0 || !start || !end) {
     return NextResponse.json({ error: 'Missing symbols/start/end parameters' }, { status: 400 });
+  }
+  if (symbols.length > MAX_SYMBOLS) {
+    return NextResponse.json({ error: `单次最多查询 ${MAX_SYMBOLS} 个标的` }, { status: 400 });
+  }
+  if (!DATE_PATTERN.test(start) || !DATE_PATTERN.test(end)) {
+    return NextResponse.json({ error: '日期必须使用 YYYY-MM-DD 格式' }, { status: 400 });
+  }
+  const startTime = new Date(`${start}T00:00:00.000Z`).getTime();
+  const endTime = new Date(`${end}T00:00:00.000Z`).getTime();
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime > endTime) {
+    return NextResponse.json({ error: '开始日期不能晚于结束日期' }, { status: 400 });
+  }
+  if ((endTime - startTime) / 86_400_000 > MAX_RANGE_DAYS) {
+    return NextResponse.json({ error: '历史行情查询跨度不能超过 5 年' }, { status: 400 });
   }
 
   const results = await Promise.all(symbols.map((symbol) => fetchHistory(symbol, start, end)));
